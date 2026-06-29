@@ -1,0 +1,38 @@
+version: 2
+
+sources:
+  - name: raw_insurance_claims
+    description: >
+      Raw 3rd-party missing trailer insurance claims data loaded into Redshift.
+      Data originates from Sedgwick and Xceedance claim management systems.
+    database: cirs_warehouse
+    schema: raw
+    loader: fivetran
+    loaded_at_field: _loaded_at
+    freshness:
+      warn_after: {count: 24, period: hour}
+      error_after: {count: 48, period: hour}
+
+    tables:
+      - name: insurance_claims_trailers
+        description: >
+          Primary claims table. One row per claim submission.
+        columns:
+          - name: claim_number
+            description: Unique identifier for the insurance claim
+            tests:
+              - not_null
+          - name: status
+            description: Current claim status (Open/Closed)
+            tests:
+              - accepted_values:
+                  values: ['Open', 'Closed']
+          - name: submitted
+            description: Date the claim was submitted
+            tests:
+              - not_null
+          - name: source
+            description: Claim source system (Sedgwick or Xceedance)
+            tests:
+              - accepted_values:
+                  values: ['Sedgwick', 'Xceedance']

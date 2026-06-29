@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: int_claims_classified
+    description: >
+      Claims enriched with Amazon Week calculations and WBR tier classification.
+      Every claim receives tier1, tier2, and optionally tier3 category assignment.
+      Materialized incrementally — only new rows (by _loaded_at) are processed.
+    columns:
+      - name: claim_surrogate_key
+        description: Surrogate key (hash of claim_number + status + submitted_date)
+        tests:
+          - unique
+          - not_null
+      - name: wbr_tier1
+        description: Top-level WBR classification
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['ACTIVE CASES', 'CLOSED CASES', 'RE-OPEN CLAIMS']
+      - name: wbr_tier2
+        description: Second-level WBR classification
+        tests:
+          - not_null
+      - name: submitted_amazon_week
+        description: Amazon week number from submitted_date
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+              max_value: 53
+      - name: value_usd
+        description: Trailer value converted to USD
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              strictly: false
+
+  - name: int_claims_reopened
+    description: >
+      Ephemeral model identifying claim_numbers that exist in both
+      Open and Closed status (re-opened claims).

@@ -1,0 +1,51 @@
+version: 2
+
+models:
+  - name: mart_weekly_summary
+    description: >
+      WBR-ready weekly summary with trailing 6 weeks + YTD.
+      Each row is a category from the hierarchy with count and USD value columns per week.
+      Parameterized by report_year and report_week variables.
+    columns:
+      - name: category
+        tests:
+          - not_null
+      - name: sort_order
+        tests:
+          - unique
+          - not_null
+
+  - name: mart_breakdown_active
+    description: >
+      Detail-level active and re-opened claims for the WBR breakdown sheet.
+      Includes a breakdown_section column for downstream Excel rendering.
+    columns:
+      - name: claim_number
+        tests:
+          - not_null
+      - name: breakdown_section
+        tests:
+          - accepted_values:
+              values:
+                - IN_PROCESS
+                - WAITING_FOR_REPLY_FOUND
+                - WAITING_FOR_REPLY_NOT_FOUND
+                - WAITING_FOR_REPLY_NOT_IN_NETWORK
+                - RE_OPENED
+                - OTHER
+
+  - name: mart_breakdown_closed
+    description: >
+      Detail-level closed claims ordered by closure date descending.
+    columns:
+      - name: claim_number
+        tests:
+          - not_null
+      - name: case_date_closed
+        tests:
+          - not_null
+
+  - name: mart_value_summary
+    description: >
+      Aggregated USD exposure and claim counts by tier1 status,
+      trailing 6 weeks + YTD. Used for executive dashboards.
