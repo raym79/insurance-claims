@@ -26,13 +26,14 @@ models:
       - name: breakdown_section
         tests:
           - accepted_values:
-              values:
-                - IN_PROCESS
-                - WAITING_FOR_REPLY_FOUND
-                - WAITING_FOR_REPLY_NOT_FOUND
-                - WAITING_FOR_REPLY_NOT_IN_NETWORK
-                - RE_OPENED
-                - OTHER
+              arguments:
+                values:
+                  - IN_PROCESS
+                  - WAITING_FOR_REPLY_FOUND
+                  - WAITING_FOR_REPLY_NOT_FOUND
+                  - WAITING_FOR_REPLY_NOT_IN_NETWORK
+                  - RE_OPENED
+                  - OTHER
 
   - name: mart_breakdown_closed
     description: >
