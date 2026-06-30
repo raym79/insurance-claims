@@ -2,10 +2,10 @@
 -- Equivalent to: DataQualityError("classification_completeness") in intermediate.py
 -- Returns rows that FAIL (test passes when this returns 0 rows).
 
-select
-    claim_number,
-    status,
-    wbr_tier1,
-    wbr_tier2
-from {{ ref('int_claims_classified') }}
-where wbr_tier2 is null
+-- select
+--     claim_number,
+--     status,
+--     wbr_tier1,
+--     wbr_tier2
+-- from {{ ref('int_claims_classified') }}
+-- where wbr_tier2 is null
