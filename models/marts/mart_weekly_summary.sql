@@ -121,4 +121,3 @@ summary as (
 )
 
 select * from summary
-order by sort_order
