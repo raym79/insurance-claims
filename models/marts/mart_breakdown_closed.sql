@@ -39,4 +39,3 @@ select
 
 from {{ ref('int_claims_classified') }}
 where wbr_tier1 = 'CLOSED CASES'
-order by case_date_closed desc
