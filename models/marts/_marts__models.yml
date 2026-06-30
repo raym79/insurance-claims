@@ -8,10 +8,10 @@ models:
       Parameterized by report_year and report_week variables.
     columns:
       - name: category
-        tests:
+        data_tests:
           - not_null
       - name: sort_order
-        tests:
+        data_tests:
           - unique
           - not_null
 
@@ -21,10 +21,10 @@ models:
       Includes a breakdown_section column for downstream Excel rendering.
     columns:
       - name: claim_number
-        tests:
+        data_tests:
           - not_null
       - name: breakdown_section
-        tests:
+        data_tests:
           - accepted_values:
               arguments:
                 values:
@@ -40,10 +40,10 @@ models:
       Detail-level closed claims ordered by closure date descending.
     columns:
       - name: claim_number
-        tests:
+        data_tests:
           - not_null
       - name: case_date_closed
-        tests:
+        data_tests:
           - not_null
 
   - name: mart_value_summary

@@ -2,8 +2,12 @@
   config(
     materialized='table',
     tags=['marts', 'weekly'],
-    dist='claim_number',
-    sort='submitted_amazon_week'
+    partition_by={
+      'field': 'submitted_date',
+      'data_type': 'date',
+      'granularity': 'month'
+    },
+    cluster_by=['claim_number', 'status']
   )
 }}
 
@@ -42,16 +46,16 @@ select
 
     -- Assign breakdown section for Excel rendering
     case
+        when wbr_tier1 = 'RE-OPEN CLAIMS'
+            then 'RE_OPENED'
         when wbr_tier2 = 'In Process - Investigating'
             then 'IN_PROCESS'
         when wbr_tier3 = 'Found'
             then 'WAITING_FOR_REPLY_FOUND'
-        when wbr_tier3 = 'Not Found At Site'
+        when wbr_tier3 = 'Not Found / Potential Claim'
             then 'WAITING_FOR_REPLY_NOT_FOUND'
-        when wbr_tier3 = 'Not In Amazon Network'
+        when wbr_tier3 = 'Not In Network'
             then 'WAITING_FOR_REPLY_NOT_IN_NETWORK'
-        when wbr_tier1 = 'RE-OPEN CLAIMS'
-            then 'RE_OPENED'
         else 'OTHER'
     end as breakdown_section
 

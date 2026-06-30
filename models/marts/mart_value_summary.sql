@@ -1,8 +1,7 @@
 {{
   config(
     materialized='table',
-    tags=['marts', 'weekly'],
-    dist='ALL'
+    tags=['marts', 'weekly']
   )
 }}
 
@@ -38,17 +37,19 @@ select
     wbr_tier1,
 
     {% for week in trailing_weeks %}
-    sum(case when attribution_year = {{ week[0] }}
-              and attribution_week = {{ week[1] }}
-         then value_usd else 0 end) as wk{{ week[1] }}_value_usd,
+    round(sum(case when attribution_year = {{ week[0] }}
+                    and attribution_week = {{ week[1] }}
+               then value_usd else cast(0 as numeric) end), 2)
+        as wk{{ week[1] }}_value_usd,
     count(case when attribution_year = {{ week[0] }}
                and attribution_week = {{ week[1] }}
           then 1 end) as wk{{ week[1] }}_count,
     {% endfor %}
 
-    sum(case when attribution_year = {{ report_year }}
-              and attribution_week < {{ report_week }}
-         then value_usd else 0 end) as ytd_value_usd,
+    round(sum(case when attribution_year = {{ report_year }}
+                    and attribution_week < {{ report_week }}
+               then value_usd else cast(0 as numeric) end), 2)
+        as ytd_value_usd,
     count(case when attribution_year = {{ report_year }}
                and attribution_week < {{ report_week }}
           then 1 end) as ytd_count

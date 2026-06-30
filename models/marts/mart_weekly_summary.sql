@@ -1,9 +1,7 @@
 {{
   config(
     materialized='table',
-    tags=['marts', 'weekly'],
-    dist='ALL',
-    sort='sort_order'
+    tags=['marts', 'weekly']
   )
 }}
 
@@ -72,7 +70,7 @@ summary as (
             then 1 end
         ), 0) as wk{{ week[1] }}_count,
 
-        coalesce(sum(
+        round(coalesce(sum(
             case when c.attribution_year = {{ week[0] }}
                   and c.attribution_week = {{ week[1] }}
                   and (
@@ -84,7 +82,7 @@ summary as (
                             or c.wbr_tier3 = cat.tier_match_value))
                   )
             then c.value_usd end
-        ), 0)::decimal(12,2) as wk{{ week[1] }}_value_usd,
+        ), cast(0 as numeric)), 2) as wk{{ week[1] }}_value_usd,
         {% endfor %}
 
         -- YTD
@@ -102,7 +100,7 @@ summary as (
             then 1 end
         ), 0) as ytd_count,
 
-        coalesce(sum(
+        round(coalesce(sum(
             case when c.attribution_year = {{ report_year }}
                   and c.attribution_week < {{ report_week }}
                   and (
@@ -114,7 +112,7 @@ summary as (
                             or c.wbr_tier3 = cat.tier_match_value))
                   )
             then c.value_usd end
-        ), 0)::decimal(12,2) as ytd_value_usd
+        ), cast(0 as numeric)), 2) as ytd_value_usd
 
     from categories cat
     cross join claims c

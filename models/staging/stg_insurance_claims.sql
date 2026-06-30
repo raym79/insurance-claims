@@ -21,34 +21,36 @@ renamed as (
 
     select
         -- Primary key
-        trim(claim_number)                              as claim_number,
-        
-        
+        trim(cast(src.claim_number as string))              as claim_number,
+
         -- Dimensions
-        trim(carrier_name)                              as carrier_name,
-        trim(country)                                   as country,
-        trim(status)                                    as status,
-        trim(reason)                                    as reason,
-        trim(results)                                   as results,
-        trim(insurance_claims_results)                  as insurance_claims_results,
-        trim(source)                                    as source,
-        trim(trailer_license_plate)                     as trailer_license_plate,
-        trim(cast(trailer_number as string))            as trailer_number,
-        trim(trailer_vin)                               as trailer_vin,
-        upper(trim(currency))                           as currency,
+        trim(cast(src.carrier_name as string))              as carrier_name,
+        trim(cast(src.country as string))                   as country,
+        trim(cast(src.status as string))                    as status,
+        trim(cast(src.reason as string))                    as reason,
+        trim(cast(src.results as string))                   as results,
+        trim(cast(src.insurance_claims_results as string))  as insurance_claims_results,
+        trim(cast(src.source as string))                    as source,
+        trim(cast(src.trailer_license_plate as string))     as trailer_license_plate,
+        trim(cast(src.trailer_number as string))            as trailer_number,
+        trim(cast(src.trailer_vin as string))               as trailer_vin,
+        coalesce(
+            nullif(upper(trim(cast(src.currency as string))), ''),
+            'USD'
+        )                                                   as currency,
 
         -- Dates
-        cast(submitted as date)                         as submitted_date,
-        cast(date_of_loss as date)                      as date_of_loss,
-        cast(dropped_off_date as date)                  as dropped_off_date,
-        cast(case_date_closed as date)                  as case_date_closed,
-        cast(last_seen_date as date)                    as last_seen_date,
-        
+        safe_cast(src.submitted as date)                    as submitted_date,
+        safe_cast(src.date_of_loss as date)                 as date_of_loss,
+        safe_cast(src.dropped_off_date as date)             as dropped_off_date,
+        safe_cast(src.case_date_closed as date)             as case_date_closed,
+        safe_cast(src.last_seen_date as date)               as last_seen_date,
 
         -- Numeric
-        cast(value_of_trailer as numeric)         as value_of_trailer,
+        safe_cast(src.value_of_trailer as numeric)          as value_of_trailer
 
-    from source_data
+    from source_data as src
+    where nullif(trim(cast(src.claim_number as string)), '') is not null
 
 )
 

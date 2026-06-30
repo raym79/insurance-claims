@@ -2,8 +2,12 @@
   config(
     materialized='table',
     tags=['marts', 'weekly'],
-    dist='claim_number',
-    sort='case_date_closed'
+    partition_by={
+      'field': 'case_date_closed',
+      'data_type': 'date',
+      'granularity': 'month'
+    },
+    cluster_by=['claim_number', 'status']
   )
 }}
 

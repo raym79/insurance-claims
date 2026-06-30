@@ -16,20 +16,19 @@
 */
 
 select
-    claim_number,
-    carrier_name,
-    country,
-    status,
-    reason,
-    results,
-    insurance_claims_results,
-    case_date_closed,
-    value_of_trailer,
-    currency,
-    source,
-    submitted_date,
-    _loaded_at as updated_at
+    claims.claim_number,
+    claims.carrier_name,
+    claims.country,
+    claims.status,
+    claims.reason,
+    claims.results,
+    claims.insurance_claims_results,
+    claims.case_date_closed,
+    claims.value_of_trailer,
+    claims.currency,
+    claims.source,
+    claims.submitted_date
 
-from {{ ref('stg_insurance_claims') }}
+from {{ ref('stg_insurance_claims') }} as claims
 
 {% endsnapshot %}

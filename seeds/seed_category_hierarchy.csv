@@ -3,15 +3,15 @@ sort_order,display_label,indent_level,tier1_filter,tier_match_value
 2,  In Process - Investigating,1,ACTIVE CASES,In Process - Investigating
 3,  Waiting For Reply From Insurance,1,ACTIVE CASES,Waiting For Reply From Insurance
 4,    Found,2,ACTIVE CASES,Found
-5,    Not Found At Site,2,ACTIVE CASES,Not Found At Site
-6,    Not In Amazon Network,2,ACTIVE CASES,Not In Amazon Network
+5,    Not Found / Potential Claim,2,ACTIVE CASES,Not Found / Potential Claim
+6,    Not In Network,2,ACTIVE CASES,Not In Network
 7,CLOSED CASES,0,CLOSED CASES,
-8,  Found And Returned,1,CLOSED CASES,Found
+8,  Found And Returned,1,CLOSED CASES,Found And Returned
 9,    Carrier Picked Up,2,CLOSED CASES,Carrier Picked Up
 10,    Found -Sent To Towing Yard,2,CLOSED CASES,Found -Sent To Towing Yard
-11,    ROC Team Returned,2,CLOSED CASES,ROC Team Returned
-12,    Amazon Not Liable Due To No Response From Carrier For Disposition,2,CLOSED CASES,Amazon Not Liable Due To No Response From Carrier For Disposition
+11,    Found - Recovered,2,CLOSED CASES,Found - Recovered
+12,    Not Liable Due To No Response,2,CLOSED CASES,Not Liable Due To No Response
 13,  Not Found,1,CLOSED CASES,Not Found
-14,    Amazon Not Liable,2,CLOSED CASES,Amazon Not Liable
-15,    Amazon Liable,2,CLOSED CASES,Amazon Liable
+14,    Not Liable,2,CLOSED CASES,Not Liable
+15,    Liable,2,CLOSED CASES,Liable
 16,RE-OPEN CLAIMS,0,RE-OPEN CLAIMS,

@@ -1,0 +1,9 @@
+# dbt-generated artifacts
+target/
+logs/
+dbt_packages/
+
+# Local credentials and environment files
+.env
+.user.yml
+dbt_internal_packages/

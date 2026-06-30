@@ -28,7 +28,7 @@ models:
       +schema: staging
       +tags: ['staging', 'daily']
     intermediate:
-      +materialized: incremental
+      +materialized: table
       +schema: intermediate
       +tags: ['intermediate', 'daily']
     marts:
@@ -39,3 +39,8 @@ models:
 seeds:
   missing_trailer_claims:
     +schema: seeds
+    seed_currency_rates:
+      +column_types:
+        currency_code: string
+        currency_name: string
+        rate_to_usd: numeric

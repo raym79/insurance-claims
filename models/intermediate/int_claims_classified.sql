@@ -1,9 +1,7 @@
 {{
   config(
-    materialized='incremental',
-    unique_key='claim_surrogate_key',
-    incremental_strategy='merge',
-    on_schema_change='append_new_columns'
+    materialized='table',
+    cluster_by=['status', 'claim_number']
   )
 }}
 
@@ -66,7 +64,7 @@ classified as (
             -- closed
             when sc.status = 'Closed' and sc.reason = 'Found'
                 then 'Found And Returned'
-            when sc.status = 'Closed' and sc.reason != 'Found'
+            when sc.status = 'Closed' and coalesce(sc.reason, '') != 'Found'
                 then 'Not Found'
             else 'In Process - Investigating'
         end as wbr_tier2,
@@ -99,11 +97,11 @@ classified as (
             when sc.status = 'Closed' and sc.reason = 'Found'
                  and sc.results = 'No Response From Carrier To 10-Day Closing Letter'
                 then 'Not Liable Due To No Response'
-            when sc.status = 'Closed' and sc.reason != 'Found'
+            when sc.status = 'Closed' and coalesce(sc.reason, '') != 'Found'
                  and sc.insurance_claims_results = 'Amazon Not Liable'
                 then 'Not Liable'
-            when sc.status = 'Closed' and sc.reason != 'Found'
-                and sc.insurance_claims_results != 'Amazon Not Liable'
+            when sc.status = 'Closed' and coalesce(sc.reason, '') != 'Found'
+                and coalesce(sc.insurance_claims_results, '') != 'Amazon Not Liable'
                 then 'Liable'
             else null
         end as wbr_tier3,
