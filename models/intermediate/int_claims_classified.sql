@@ -21,6 +21,8 @@ with staged_claims as (
 
     {% if is_incremental() %}
     where _loaded_at > (select max(_loaded_at) from {{ this }})
+    {% endif %}
+
 ),
 
 reopened_claims as (
