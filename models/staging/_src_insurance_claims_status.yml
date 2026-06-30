@@ -1,0 +1,32 @@
+version: 2
+
+sources:
+  - name: raw_claims_status
+    description: >
+      Raw 3rd-party missing trailer insurance claims data loaded into BigQuery.
+    database: ray-project-500821  # project ID
+    schema: trailer_claims  # Dataset name
+
+    tables:
+      - name: insurance_claims_status
+        description: >
+          raw claims table. One row per claim submission.
+        columns:
+          - name: claim_number
+            description: Unique identifier for the insurance claim
+            tests:
+              - not_null
+          - name: status
+            description: Current claim status (Open/Closed)
+            tests:
+              - accepted_values:
+                  arguments:
+                    values: ['Open', 'Closed']
+          - name: submitted
+            description: Date the claim was submitted
+            tests:
+              - not_null
+          - name: source
+            description: Claim source system (Sedgwick or Xceedance)
+            tests:
+              - not_null

@@ -11,9 +11,9 @@
   Equivalent to: pipeline/staging.py
 */
 
-with source as (
+with source_data as (
 
-    select * from {{ source('raw_insurance_claims', 'insurance_claims_trailers') }}
+    select * from {{ source('raw_claims_status', 'insurance_claims_status') }}
 
 ),
 
@@ -22,7 +22,8 @@ renamed as (
     select
         -- Primary key
         trim(claim_number)                              as claim_number,
-
+        
+        
         -- Dimensions
         trim(carrier_name)                              as carrier_name,
         trim(country)                                   as country,
@@ -32,9 +33,9 @@ renamed as (
         trim(insurance_claims_results)                  as insurance_claims_results,
         trim(source)                                    as source,
         trim(trailer_license_plate)                     as trailer_license_plate,
-        trim(trailer_number)                            as trailer_number,
+        trim(cast(trailer_number as string))            as trailer_number,
         trim(trailer_vin)                               as trailer_vin,
-        upper(trim(coalesce(currency, 'USD')))          as currency,
+        upper(trim(currency))                           as currency,
 
         -- Dates
         cast(submitted as date)                         as submitted_date,
@@ -42,16 +43,12 @@ renamed as (
         cast(dropped_off_date as date)                  as dropped_off_date,
         cast(case_date_closed as date)                  as case_date_closed,
         cast(last_seen_date as date)                    as last_seen_date,
+        
 
         -- Numeric
-        cast(value_of_trailer as decimal(12,2))         as value_of_trailer,
-        cast(submitted_week as integer)                 as submitted_week_legacy,
+        cast(value_of_trailer as numeric)         as value_of_trailer,
 
-        -- Metadata
-        _loaded_at
-
-    from source
-    where claim_number is not null
+    from source_data
 
 )
 

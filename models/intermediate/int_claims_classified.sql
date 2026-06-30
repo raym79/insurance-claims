@@ -3,9 +3,7 @@
     materialized='incremental',
     unique_key='claim_surrogate_key',
     incremental_strategy='merge',
-    on_schema_change='append_new_columns',
-    dist='claim_number',
-    sort='_loaded_at'
+    on_schema_change='append_new_columns'
   )
 }}
 
@@ -18,10 +16,6 @@
 with staged_claims as (
 
     select * from {{ ref('stg_insurance_claims') }}
-
-    {% if is_incremental() %}
-    where _loaded_at > (select max(_loaded_at) from {{ this }})
-    {% endif %}
 
 ),
 
@@ -61,6 +55,7 @@ classified as (
 
         -- Tier 2
         case
+            -- open
             when sc.status = 'Open' and rc.is_reopened = true
                 then 'Re-Opened'
             when sc.status = 'Open'
@@ -68,26 +63,30 @@ classified as (
                 then 'Waiting For Reply From Insurance'
             when sc.status = 'Open'
                 then 'In Process - Investigating'
+            -- closed
             when sc.status = 'Closed' and sc.reason = 'Found'
-                then 'Found'
-            when sc.status = 'Closed'
+                then 'Found And Returned'
+            when sc.status = 'Closed' and sc.reason != 'Found'
                 then 'Not Found'
             else 'In Process - Investigating'
         end as wbr_tier2,
 
         -- Tier 3
         case
+            -- open
             when sc.status = 'Open'
                  and sc.insurance_claims_results = 'Waiting For Reply'
                  and sc.reason = 'Found'
                 then 'Found'
             when sc.status = 'Open'
                  and sc.insurance_claims_results = 'Waiting For Reply'
-                 and sc.reason = 'No Longer In Network'
-                then 'Not In Amazon Network'
+                 and sc.reason = 'No Data Found On Amazon Network'
+                then 'Not Found / Potential Claim'
             when sc.status = 'Open'
                  and sc.insurance_claims_results = 'Waiting For Reply'
-                then 'Not Found At Site'
+                 and sc.reason = 'No Longer In Network'
+                then 'Not In Network'
+            -- closed
             when sc.status = 'Closed' and sc.reason = 'Found'
                  and sc.results = 'Carrier Has & Picked Up'
                 then 'Carrier Picked Up'
@@ -96,17 +95,16 @@ classified as (
                 then 'Found -Sent To Towing Yard'
             when sc.status = 'Closed' and sc.reason = 'Found'
                  and sc.results = 'Found & Recovered'
-                then 'ROC Team Returned'
+                then 'Found - Recovered'
             when sc.status = 'Closed' and sc.reason = 'Found'
                  and sc.results = 'No Response From Carrier To 10-Day Closing Letter'
-                then 'Amazon Not Liable Due To No Response From Carrier For Disposition'
-            when sc.status = 'Closed' and sc.reason = 'Found'
-                then 'Carrier Picked Up'
+                then 'Not Liable Due To No Response'
             when sc.status = 'Closed' and sc.reason != 'Found'
                  and sc.insurance_claims_results = 'Amazon Not Liable'
-                then 'Amazon Not Liable'
+                then 'Not Liable'
             when sc.status = 'Closed' and sc.reason != 'Found'
-                then 'Amazon Liable'
+                and sc.insurance_claims_results != 'Amazon Not Liable'
+                then 'Liable'
             else null
         end as wbr_tier3,
 

@@ -1,53 +1,69 @@
 /*
-  Amazon Week Calculator macros for Redshift.
-  Amazon weeks: Sunday-start, Week 1 = first week containing a Thursday.
-  Equivalent to: pipeline/amazon_week.py
+  Amazon Week Calculator macros for BigQuery.
+  Amazon weeks start on Sunday, and Week 1 is the first week containing
+  a Thursday.
 
-  Redshift's extract(dow from date) returns: 0=Sunday, 1=Monday, ..., 6=Saturday
-  which conveniently matches our Sun-start convention directly.
+  BigQuery's extract(dayofweek from date) returns:
+  1=Sunday, 2=Monday, ..., 7=Saturday.
 */
+
+
+{% macro amazon_week_thursday(date_column) %}
+    date_add(
+        {{ date_column }},
+        interval (5 - extract(dayofweek from {{ date_column }})) day
+    )
+{% endmacro %}
 
 
 {% macro amazon_week_year(date_column) %}
 {#
-  Returns the Amazon Year for a given date.
-  The Thursday of the same Sun-start week determines the year.
+  Returns the Amazon year for a date. The Thursday in the same
+  Sunday-start week determines the year.
 #}
     case
         when {{ date_column }} is null then null
-        else extract(year from
-            dateadd(day, (4 - extract(dow from {{ date_column }})::int), {{ date_column }})
-        )::int
+        else cast(
+            extract(year from {{ amazon_week_thursday(date_column) }})
+            as int64
+        )
     end
 {% endmacro %}
 
 
 {% macro amazon_week_number(date_column) %}
 {#
-  Returns the Amazon Week Number (1-53) for a given date.
-  Steps:
-    1. Find Thursday of same Sun-start week
-    2. Find first Thursday of that year
-    3. week = (thursday - first_thursday) / 7 + 1
+  Returns the Amazon week number (1-53):
+    1. Find the Thursday in the date's Sunday-start week.
+    2. Find the first Thursday of that Amazon year.
+    3. Count the complete seven-day intervals between those Thursdays.
 #}
     case
         when {{ date_column }} is null then null
-        else (
-            datediff(day,
-                -- First Thursday of the Amazon Year
-                dateadd(day,
-                    (4 - extract(dow from
-                        date_trunc('year',
-                            dateadd(day, (4 - extract(dow from {{ date_column }})::int), {{ date_column }})
-                        )
-                    )::int + 7) % 7,
-                    date_trunc('year',
-                        dateadd(day, (4 - extract(dow from {{ date_column }})::int), {{ date_column }})
-                    )
+        else cast(
+            div(
+                date_diff(
+                    {{ amazon_week_thursday(date_column) }},
+                    date_add(
+                        date_trunc(
+                            {{ amazon_week_thursday(date_column) }},
+                            year
+                        ),
+                        interval mod(
+                            5 - extract(
+                                dayofweek from date_trunc(
+                                    {{ amazon_week_thursday(date_column) }},
+                                    year
+                                )
+                            ) + 7,
+                            7
+                        ) day
+                    ),
+                    day
                 ),
-                -- Thursday of same week as input date
-                dateadd(day, (4 - extract(dow from {{ date_column }})::int), {{ date_column }})
-            ) / 7 + 1
-        )::int
+                7
+            ) + 1
+            as int64
+        )
     end
 {% endmacro %}
