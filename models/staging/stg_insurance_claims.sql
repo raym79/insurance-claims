@@ -11,7 +11,7 @@
   Equivalent to: pipeline/staging.py
 */
 
-with source as (
+with source_data as (
 
     select * from {{ source('raw_claims_status', 'insurance_claims_status') }}
 
@@ -51,7 +51,7 @@ renamed as (
         -- Metadata
         _loaded_at
 
-    from source
+    from source_data
 
 )
 
