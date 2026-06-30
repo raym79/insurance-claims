@@ -5,7 +5,7 @@ models:
     description: >
       Claims enriched with Amazon Week calculations and WBR tier classification.
       Every claim receives tier1, tier2, and optionally tier3 category assignment.
-      Materialized incrementally — only new rows (by _loaded_at) are processed.
+      Materialized incrementally using a full-source merge on claim_surrogate_key.
     columns:
       - name: claim_surrogate_key
         description: Surrogate key (hash of claim_number + status + submitted_date)

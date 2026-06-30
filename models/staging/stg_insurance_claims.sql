@@ -46,10 +46,7 @@ renamed as (
         
 
         -- Numeric
-        cast(value_of_trailer as decimal(12,2))         as value_of_trailer,
-       
-        -- Metadata
-        _loaded_at
+        cast(value_of_trailer as numeric)         as value_of_trailer,
 
     from source_data
 

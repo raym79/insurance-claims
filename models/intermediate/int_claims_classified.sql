@@ -3,9 +3,7 @@
     materialized='incremental',
     unique_key='claim_surrogate_key',
     incremental_strategy='merge',
-    on_schema_change='append_new_columns',
-    dist='claim_number',
-    sort='_loaded_at'
+    on_schema_change='append_new_columns'
   )
 }}
 
@@ -18,10 +16,6 @@
 with staged_claims as (
 
     select * from {{ ref('stg_insurance_claims') }}
-
-    {% if is_incremental() %}
-    where _loaded_at > (select max(_loaded_at) from {{ this }})
-    {% endif %}
 
 ),
 
