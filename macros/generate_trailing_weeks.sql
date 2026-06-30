@@ -1,6 +1,6 @@
-{% macro amazon_weeks_in_year(year) %}
+{% macro report_weeks_in_year(year) %}
 {#
-  Amazon week-years use the first-Thursday rule, so they have the same
+  Report week-years use the first-Thursday rule, so they have the same
   52/53-week year pattern as ISO calendars: 53 weeks when January 1 is
   Thursday, or when a leap year starts on Wednesday.
 #}
@@ -31,13 +31,13 @@
     {% set report_year = report_year | int %}
     {% set report_week = report_week | int %}
     {% set num_weeks = num_weeks | int %}
-    {% set max_report_week = amazon_weeks_in_year(report_year) %}
+    {% set max_report_week = report_weeks_in_year(report_year) %}
 
     {% if report_week < 1 or report_week > max_report_week %}
         {{ exceptions.raise_compiler_error(
             "report_week must be between 1 and "
             ~ max_report_week
-            ~ " for Amazon year "
+            ~ " for report year "
             ~ report_year
         ) }}
     {% endif %}
@@ -54,7 +54,7 @@
             {% set ns.week = ns.week - 1 %}
         {% else %}
             {% set ns.year = ns.year - 1 %}
-            {% set ns.week = amazon_weeks_in_year(ns.year) %}
+            {% set ns.week = report_weeks_in_year(ns.year) %}
         {% endif %}
 
         {% do weeks.insert(0, (ns.year, ns.week)) %}

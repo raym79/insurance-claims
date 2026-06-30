@@ -7,7 +7,7 @@
 
 /*
   Classification Layer: Applies Tier 1 / Tier 2 / Tier 3 WBR category logic.
-  Derives Amazon Week columns for submitted and closed dates.
+  Derives report week columns for submitted and closed dates.
   Equivalent to: pipeline/intermediate.py
 */
 
@@ -32,13 +32,13 @@ classified as (
 
         sc.*,
 
-        -- Amazon Week for submitted date
-        {{ amazon_week_year('sc.submitted_date') }}   as submitted_amazon_year,
-        {{ amazon_week_number('sc.submitted_date') }} as submitted_amazon_week,
+        -- Report week for submitted date
+        {{ report_week_year('sc.submitted_date') }}   as submitted_year,
+        {{ report_week_number('sc.submitted_date') }} as submitted_week,
 
-        -- Amazon Week for case_date_closed
-        {{ amazon_week_year('sc.case_date_closed') }}   as closed_amazon_year,
-        {{ amazon_week_number('sc.case_date_closed') }} as closed_amazon_week,
+        -- Report week for case_date_closed
+        {{ report_week_year('sc.case_date_closed') }}   as closed_year,
+        {{ report_week_number('sc.case_date_closed') }} as closed_week,
 
         -- Tier 1
         case

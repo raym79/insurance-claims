@@ -34,8 +34,8 @@ select
     wbr_tier1,
     wbr_tier2,
     wbr_tier3,
-    closed_amazon_year,
-    closed_amazon_week
+    closed_year,
+    closed_week
 
 from {{ ref('int_claims_classified') }}
 where wbr_tier1 = 'CLOSED CASES'

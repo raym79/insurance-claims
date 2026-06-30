@@ -20,13 +20,13 @@ with claims as (
         wbr_tier1,
         case
             when wbr_tier1 in ('ACTIVE CASES', 'RE-OPEN CLAIMS')
-                then submitted_amazon_year
-            else closed_amazon_year
+                then submitted_year
+            else closed_year
         end as attribution_year,
         case
             when wbr_tier1 in ('ACTIVE CASES', 'RE-OPEN CLAIMS')
-                then submitted_amazon_week
-            else closed_amazon_week
+                then submitted_week
+            else closed_week
         end as attribution_week,
         value_usd
     from {{ ref('int_claims_classified') }}

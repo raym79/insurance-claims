@@ -41,8 +41,8 @@ select
     wbr_tier1,
     wbr_tier2,
     wbr_tier3,
-    submitted_amazon_year,
-    submitted_amazon_week,
+    submitted_year,
+    submitted_week,
 
     -- Assign breakdown section for Excel rendering
     case
