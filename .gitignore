@@ -7,3 +7,11 @@ dbt_packages/
 .env
 .user.yml
 dbt_internal_packages/
+
+# Local project guidance
+DBT_BIGQUERY_WORKFLOW.md
+dashboard/STREAMLIT_GETTING_STARTED.md
+
+# Streamlit local environment and credentials
+.venv/
+dashboard/.streamlit/secrets.toml
