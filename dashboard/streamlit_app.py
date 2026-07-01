@@ -8,8 +8,9 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 from google.api_core.exceptions import GoogleAPIError
-from google.auth.exceptions import DefaultCredentialsError
+from google.auth.exceptions import GoogleAuthError
 from google.cloud import bigquery
+from google.oauth2 import service_account
 
 
 st.set_page_config(
@@ -40,6 +41,20 @@ def secret_section() -> dict[str, Any]:
         return {}
 
 
+def service_account_section() -> dict[str, Any]:
+    try:
+        section = st.secrets.get("gcp_service_account", {})
+        credentials_info = dict(section)
+    except (FileNotFoundError, KeyError):
+        return {}
+
+    private_key = credentials_info.get("private_key")
+    if isinstance(private_key, str):
+        credentials_info["private_key"] = private_key.replace("\\n", "\n")
+
+    return credentials_info
+
+
 def configured_value(name: str, default: str = "") -> str:
     secrets = secret_section()
     env_name = f"BQ_{name.upper()}"
@@ -55,6 +70,19 @@ def validate_identifier(value: str, pattern: re.Pattern[str], label: str) -> str
 
 @st.cache_resource
 def bigquery_client(project_id: str, location: str) -> bigquery.Client:
+    credentials_info = service_account_section()
+    if credentials_info:
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+        return bigquery.Client(
+            project=project_id,
+            credentials=credentials,
+            location=location,
+        )
+
+    # Local development fallback: gcloud Application Default Credentials.
     return bigquery.Client(project=project_id, location=location)
 
 
@@ -438,6 +466,12 @@ with st.sidebar:
     project_id = st.text_input("BigQuery project", value=default_project)
     marts_dataset = st.text_input("Mart dataset", value=default_dataset)
     location = st.text_input("BigQuery location", value=default_location)
+    auth_method = (
+        "Streamlit service account"
+        if service_account_section()
+        else "Application Default Credentials"
+    )
+    st.caption(f"Authentication: {auth_method}")
     if st.button("Refresh data", use_container_width=True):
         st.cache_data.clear()
         st.cache_resource.clear()
@@ -457,11 +491,12 @@ else:
                 key: query_mart(project_id, marts_dataset, table, location)
                 for key, table in TABLES.items()
             }
-    except (DefaultCredentialsError, GoogleAPIError, ValueError) as exc:
-        st.error(f"Unable to load BigQuery data: {exc}")
+    except (GoogleAuthError, GoogleAPIError, ValueError) as exc:
+        st.error(f"Unable to load BigQuery data ({type(exc).__name__}).")
         st.caption(
-            "Confirm Application Default Credentials, dataset name, location, "
-            "and BigQuery permissions."
+            "On Streamlit Cloud, configure [gcp_service_account] in App "
+            "settings → Secrets. Also confirm the dataset, location, and "
+            "BigQuery permissions."
         )
         st.stop()
 

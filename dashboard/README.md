@@ -103,6 +103,26 @@ Use the sidebar data-source selector:
 BigQuery results are cached for ten minutes. Use **Refresh data** in the
 sidebar to clear the cache immediately.
 
+## Streamlit Community Cloud authentication
+
+Local `gcloud auth application-default login` credentials are not available
+inside Streamlit Community Cloud.
+
+For the deployed app:
+
+1. Create a dedicated, least-privilege Google Cloud service account.
+2. Grant it permission to run BigQuery jobs and read `dbt_rma_marts`.
+3. Generate a new key. Do not reuse any previously exposed key.
+4. Open the deployed app and select **Manage app**.
+5. Open **Settings → Secrets**.
+6. Copy the structure from
+   `.streamlit/secrets.streamlit-cloud.toml.example`.
+7. Replace every placeholder with values from the new service-account JSON.
+8. Save the secrets and reboot the app.
+
+Never commit the completed service-account configuration or JSON key to
+GitHub.
+
 ## Production deployment
 
 Prefer deploying to a Google Cloud runtime such as Cloud Run with an attached
