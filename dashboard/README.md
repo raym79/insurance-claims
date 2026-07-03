@@ -1,9 +1,99 @@
 # Insurance Claims Streamlit Dashboard
 
-For a detailed Windows walkthrough, see
-[STREAMLIT_GETTING_STARTED.md](STREAMLIT_GETTING_STARTED.md).
+The dashboard entry point is `dashboard/streamlit_app.py`. For a detailed
+Windows and virtual-environment walkthrough, see the local
+`STREAMLIT_GETTING_STARTED.md` guide.
 
-The dashboard reads these dbt marts from BigQuery:
+**Live dashboard:** [Insurance Claims Dashboard](https://insurance-claims-gkcp4jjuwyqfra8pgbwezj.streamlit.app/)
+
+## Dashboard behavior
+
+The KPI cards above the tabs use the latest available report week:
+
+- **Active Claims**: Open claims that have never previously been closed.
+- **Closed Claims**: Claims whose latest weekly status is Closed.
+- **Re-opened Claims**: Open claims with at least one earlier Closed snapshot.
+- **Claim Value**: Total USD trailer value across Active, Closed, and
+  Re-opened claims in the latest week.
+
+When a prior week exists, the small KPI delta is:
+
+```text
+latest available week - previous available week
+```
+
+The cards are not affected by filters inside the tabs.
+
+## Tabs
+
+### Weekly Review
+
+- Select a report-week date range.
+- Filter by Provider (`source`), Carrier (`carrier_name`), and Country.
+- Choose Claim Count or Claim Value (USD).
+- Review the maintained WBR waterfall across week columns.
+- The rightmost WoW column compares the last selected week with its previous
+  available week.
+
+### Monthly Review
+
+The Monthly Review has the same filters and waterfall. Month columns replace
+week columns, and the rightmost MoM column compares the last selected month
+with its previous available month.
+
+### WBR waterfall
+
+Both review tabs use this fixed order and indentation:
+
+```text
+ACTIVE CASES
+    In Process - Investigating
+    Waiting For Reply From Insurance
+        Found
+        Not Found / Potential Claim
+        Not In Network
+CLOSED CASES
+    Found And Returned
+        Carrier Picked Up
+        Found -Sent To Towing Yard
+        Found - Recovered
+        Not Liable Due To No Response
+    Not Found
+        Not Liable
+        Liable
+RE-OPEN CLAIMS
+```
+
+### Current Claims
+
+Shows the latest available state for every claim. Filters appear in this
+order:
+
+1. Country
+2. Status
+3. Provider
+4. Carrier
+5. Claim Number
+
+Headers use Title Case. Internal `claim_snapshot_key` and `snapshot_date`
+columns are omitted from the table and CSV download.
+
+### Transitions
+
+Shows claim-level changes between available weekly observations. New and
+unchanged claims are excluded. Filters are Country, Status, Provider, Carrier,
+Transition Type, and Claim Number.
+
+Possible transition types are:
+
+- `OPEN_TO_CLOSED`
+- `CLOSED_TO_OPEN`
+- `STATUS_CHANGED`
+
+Headers use Title Case. Internal `claim_snapshot_key` and `snapshot_date`
+columns are omitted from the table and CSV download.
+
+## Required BigQuery marts
 
 - `mart_claims_current`
 - `mart_claims_weekly`
@@ -12,29 +102,12 @@ The dashboard reads these dbt marts from BigQuery:
 - `mart_claims_monthly`
 - `mart_claims_monthly_metrics`
 
-It includes a demo mode, so the interface can be explored before BigQuery
-authentication is configured.
+WoW requires two distinct weekly periods. MoM requires two distinct monthly
+periods.
 
-The dashboard has dedicated **Weekly Review** and **Monthly Review** tabs.
-Each review includes a selectable date range and a WBR Tier 1 → Tier 2 →
-Tier 3 waterfall pivot. Weeks or months appear across the columns, with a
-rightmost WoW or MoM comparison for the latest selected period. Historical
-deltas become available after at least two source snapshot periods exist.
+## Local installation
 
-## 1. Install Python
-
-Install Python 3.11 or 3.12 for Windows and enable the installer option that
-adds Python to `PATH`.
-
-Verify:
-
-```powershell
-python --version
-```
-
-## 2. Create the virtual environment
-
-Run these commands from the repository root:
+Install Python 3.11 or 3.12, then run from the repository root:
 
 ```powershell
 python -m venv .venv
@@ -43,49 +116,47 @@ python -m pip install --upgrade pip
 python -m pip install -r dashboard\requirements.txt
 ```
 
-If PowerShell blocks activation, use the virtual environment executable
-directly:
+If PowerShell blocks activation:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r dashboard\requirements.txt
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
 ```
 
-## 3. Configure BigQuery authentication
+Activation is optional. Commands can use executables inside `.venv` directly.
 
-For local development, install the Google Cloud CLI and create Application
-Default Credentials:
+## Local BigQuery authentication
+
+Install the Google Cloud CLI and create Application Default Credentials:
 
 ```powershell
 gcloud auth application-default login
 gcloud config set project ray-project-500821
 ```
 
-The authenticated identity needs permission to run BigQuery jobs and read the
-dbt mart dataset.
+The authenticated identity must be able to create BigQuery jobs and read the
+mart dataset.
 
-Do not commit service-account JSON keys or `secrets.toml`.
+## Local configuration
 
-## 4. Configure the mart dataset
-
-Copy the example configuration:
+Copy the safe example:
 
 ```powershell
 Copy-Item dashboard\.streamlit\secrets.toml.example dashboard\.streamlit\secrets.toml
 ```
 
-Edit `dashboard/.streamlit/secrets.toml`:
+Configure the local file:
 
 ```toml
 [bigquery]
 project_id = "ray-project-500821"
-marts_dataset = "YOUR_DBT_TARGET_MARTS_DATASET"
+marts_dataset = "dbt_rma_marts"
 location = "US"
 ```
 
-The dataset usually ends with `_marts`. Use the exact dataset visible in the
-BigQuery console after running dbt.
+`dashboard/.streamlit/secrets.toml` is excluded from Git.
 
-## 5. Start the dashboard
+## Start the dashboard
 
 With the virtual environment activated:
 
@@ -93,7 +164,7 @@ With the virtual environment activated:
 streamlit run dashboard\streamlit_app.py
 ```
 
-Without activating it:
+Without activation:
 
 ```powershell
 .\.venv\Scripts\streamlit.exe run dashboard\streamlit_app.py
@@ -101,39 +172,32 @@ Without activating it:
 
 Streamlit normally opens `http://localhost:8501`.
 
-## 6. Switch between demo and BigQuery
+The sidebar can switch between BigQuery and bundled Demo data. BigQuery
+results are cached for ten minutes; use **Refresh data** after rebuilding dbt
+models.
 
-Use the sidebar data-source selector:
+## Streamlit Community Cloud
 
-- **Demo data** displays bundled sample records.
-- **BigQuery** queries the configured mart dataset.
+Local Application Default Credentials are not available in Streamlit Cloud.
+In **Manage app -> Settings -> Secrets**, configure:
 
-BigQuery results are cached for ten minutes. Use **Refresh data** in the
-sidebar to clear the cache immediately.
+- `[bigquery]` with project, mart dataset, and location.
+- `[gcp_service_account]` using a dedicated least-privilege service account.
 
-## Streamlit Community Cloud authentication
+Use `.streamlit/secrets.streamlit-cloud.toml.example` as the safe template.
+Never commit the completed secret configuration or a service-account JSON
+key.
 
-Local `gcloud auth application-default login` credentials are not available
-inside Streamlit Community Cloud.
+## Rebuild after model changes
 
-For the deployed app:
+If metric dimensions or schemas change:
 
-1. Create a dedicated, least-privilege Google Cloud service account.
-2. Grant it permission to run BigQuery jobs and read `dbt_rma_marts`.
-3. Generate a new key. Do not reuse any previously exposed key.
-4. Open the deployed app and select **Manage app**.
-5. Open **Settings → Secrets**.
-6. Copy the structure from
-   `.streamlit/secrets.streamlit-cloud.toml.example`.
-7. Replace every placeholder with values from the new service-account JSON.
-8. Save the secrets and reboot the app.
+```powershell
+dbt build --full-refresh --select mart_claims_weekly_metrics mart_claims_monthly_metrics
+```
 
-Never commit the completed service-account configuration or JSON key to
-GitHub.
+For a complete rebuild:
 
-## Production deployment
-
-Prefer deploying to a Google Cloud runtime such as Cloud Run with an attached
-service account. Application Default Credentials allow the same application
-code to authenticate locally and in Google Cloud without embedding credentials
-in the repository.
+```powershell
+dbt build --full-refresh
+```

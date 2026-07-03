@@ -3,14 +3,15 @@ version: 2
 sources:
   - name: raw_claims_status
     description: >
-      Raw 3rd-party missing trailer insurance claims data loaded into BigQuery.
+      Append-only missing-trailer insurance claim history loaded into BigQuery.
     database: ray-project-500821  # project ID
     schema: trailer_claims  # Dataset name
 
     tables:
       - name: insurance_claims_statu_history
         description: >
-          Append-only claim snapshots. One row per claim per snapshot_date.
+          Historical claim snapshots. Grain is one row per snapshot_date and
+          claim_number; earlier snapshots must remain in the table.
         data_tests:
           - dbt_utils.unique_combination_of_columns:
               arguments:
@@ -37,6 +38,10 @@ sources:
             data_tests:
               - not_null
           - name: source
-            description: Claim source system (Sedgwick or Xceedance)
+            description: Claim provider shown as Provider in the dashboard
             data_tests:
               - not_null
+          - name: carrier_name
+            description: Insurance carrier shown as Carrier in the dashboard
+          - name: country
+            description: Claim country used by dashboard filters
