@@ -13,7 +13,7 @@
 
 with source_data as (
 
-    select * from {{ source('raw_claims_status', 'insurance_claims_statu_hist') }}
+    select * from {{ source('raw_claims_status', 'insurance_claims_statu_history') }}
 
 ),
 
