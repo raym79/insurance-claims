@@ -4,14 +4,24 @@ models:
   - name: int_claims_classified
     description: >
       Claims enriched with report week calculations and WBR tier classification.
-      Every claim receives tier1, tier2, and optionally tier3 category assignment.
-      Rebuilt as a BigQuery table because the source has no reliable load timestamp.
+      One row per claim per snapshot_date. Every claim receives tier1, tier2,
+      and optionally tier3 category assignment.
     columns:
-      - name: claim_surrogate_key
-        description: Surrogate key (hash of claim_number + status + submitted_date)
+      - name: claim_snapshot_key
+        description: Surrogate key for claim_number + snapshot_date
         data_tests:
           - unique
           - not_null
+      - name: snapshot_date
+        data_tests:
+          - not_null
+      - name: report_week
+        description: Report week derived from snapshot_date
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 53
       - name: wbr_tier1
         description: Top-level WBR classification
         data_tests:
@@ -40,5 +50,5 @@ models:
 
   - name: int_claims_reopened
     description: >
-      Ephemeral model identifying claim_numbers that exist in both
-      Open and Closed status (re-opened claims).
+      Snapshot-aware helper identifying Open claims that had a Closed status
+      in an earlier snapshot.

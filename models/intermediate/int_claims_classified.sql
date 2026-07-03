@@ -1,7 +1,12 @@
 {{
   config(
     materialized='table',
-    cluster_by=['status', 'claim_number']
+    partition_by={
+      'field': 'snapshot_date',
+      'data_type': 'date',
+      'granularity': 'month'
+    },
+    cluster_by=['claim_number', 'status']
   )
 }}
 
@@ -27,10 +32,14 @@ classified as (
 
     select
         {{ dbt_utils.generate_surrogate_key(
-            ['sc.claim_number', 'sc.status', 'sc.submitted_date']
-        ) }} as claim_surrogate_key,
+            ['sc.claim_number', 'sc.snapshot_date']
+        ) }} as claim_snapshot_key,
 
         sc.*,
+
+        -- Report week for the observed snapshot
+        {{ report_week_year('sc.snapshot_date') }}   as report_year,
+        {{ report_week_number('sc.snapshot_date') }} as report_week,
 
         -- Report week for submitted date
         {{ report_week_year('sc.submitted_date') }}   as submitted_year,
@@ -112,6 +121,7 @@ classified as (
     from staged_claims sc
     left join reopened_claims rc
         on sc.claim_number = rc.claim_number
+       and sc.snapshot_date = rc.snapshot_date
     left join {{ ref('seed_currency_rates') }} cr
         on sc.currency = cr.currency_code
 

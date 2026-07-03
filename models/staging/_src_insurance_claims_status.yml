@@ -10,8 +10,18 @@ sources:
     tables:
       - name: insurance_claims_status
         description: >
-          raw claims table. One row per claim submission.
+          Append-only claim snapshots. One row per claim per snapshot_date.
+        data_tests:
+          - dbt_utils.unique_combination_of_columns:
+              arguments:
+                combination_of_columns:
+                  - snapshot_date
+                  - claim_number
         columns:
+          - name: snapshot_date
+            description: Date when the source state was captured
+            data_tests:
+              - not_null
           - name: claim_number
             description: Unique identifier for the insurance claim
             data_tests:

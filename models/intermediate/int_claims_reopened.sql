@@ -5,31 +5,28 @@
 }}
 
 /*
-  Detect re-opened claims: claim_numbers that appear in BOTH Open and Closed status.
-  Equivalent to: IntermediateLayer._detect_reopened()
+  Identify whether a claim was previously closed before each snapshot.
+  A claim is re-opened when its current snapshot is Open and any earlier
+  snapshot was Closed.
 */
 
-with open_claims as (
+with claims as (
 
-    select distinct claim_number
+    select
+        claim_number,
+        snapshot_date,
+        status,
+        max(case when status = 'Closed' then 1 else 0 end) over (
+            partition by claim_number
+            order by snapshot_date
+            rows between unbounded preceding and 1 preceding
+        ) as prior_closed_count
     from {{ ref('stg_insurance_claims') }}
-    where status = 'Open'
-      and claim_number is not null
-
-),
-
-closed_claims as (
-
-    select distinct claim_number
-    from {{ ref('stg_insurance_claims') }}
-    where status = 'Closed'
-      and claim_number is not null
 
 )
 
 select
-    o.claim_number,
-    true as is_reopened
-from open_claims o
-inner join closed_claims c
-    on o.claim_number = c.claim_number
+    claim_number,
+    snapshot_date,
+    status = 'Open' and coalesce(prior_closed_count, 0) > 0 as is_reopened
+from claims

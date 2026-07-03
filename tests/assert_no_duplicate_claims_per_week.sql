@@ -1,12 +1,10 @@
--- A claim_number + status combination should not appear more than once
--- in the same report week (data quality check).
+-- A claim should appear at most once in each report week.
 
 select
     claim_number,
-    status,
-    submitted_year,
-    submitted_week,
+    report_year,
+    report_week,
     count(*) as occurrence_count
-from {{ ref('int_claims_classified') }}
-group by 1, 2, 3, 4
+from {{ ref('mart_claims_weekly') }}
+group by 1, 2, 3
 having count(*) > 1

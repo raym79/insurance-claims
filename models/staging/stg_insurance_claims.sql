@@ -23,6 +23,9 @@ renamed as (
         -- Primary key
         trim(cast(src.claim_number as string))              as claim_number,
 
+        -- Snapshot metadata
+        safe_cast(src.snapshot_date as date)                 as snapshot_date,
+
         -- Dimensions
         trim(cast(src.carrier_name as string))              as carrier_name,
         trim(cast(src.country as string))                   as country,
@@ -51,6 +54,7 @@ renamed as (
 
     from source_data as src
     where nullif(trim(cast(src.claim_number as string)), '') is not null
+      and safe_cast(src.snapshot_date as date) is not null
 
 )
 
