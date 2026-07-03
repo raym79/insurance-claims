@@ -952,7 +952,12 @@ with monthly_tab:
 with current_tab:
     filtered_current = filter_claims(data["current"], "current")
     st.caption(f"{len(filtered_current):,} matching current claims")
-    current_display = title_case_columns(filtered_current)
+    current_display = title_case_columns(
+        filtered_current.drop(
+            columns=["claim_snapshot_key", "snapshot_date"],
+            errors="ignore",
+        )
+    )
     st.dataframe(current_display, hide_index=True, use_container_width=True)
     download_csv(current_display, "current_claims.csv", "download_current")
 
@@ -971,6 +976,9 @@ with transitions_tab:
             filtered_transitions.sort_values(
                 "week_end_date",
                 ascending=False,
+            ).drop(
+                columns=["claim_snapshot_key", "snapshot_date"],
+                errors="ignore",
             )
         )
         st.dataframe(
