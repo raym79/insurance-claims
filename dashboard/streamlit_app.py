@@ -33,6 +33,44 @@ TABLES = {
 PROJECT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 DATASET_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+WBR_WATERFALL_ORDER = {
+    "ACTIVE CASES": 100,
+    "In Process - Investigating": 200,
+    "Waiting For Reply From Insurance": 300,
+    "Found": 400,
+    "Not Found / Potential Claim": 500,
+    "Not In Network": 600,
+    "CLOSED CASES": 700,
+    "Found And Returned": 800,
+    "Carrier Picked Up": 900,
+    "Found -Sent To Towing Yard": 1000,
+    "Found - Recovered": 1100,
+    "Not Liable Due To No Response": 1200,
+    "Not Found": 1300,
+    "Not Liable": 1400,
+    "Liable": 1500,
+    "RE-OPEN CLAIMS": 1600,
+}
+
+WBR_WATERFALL_INDENT = {
+    "ACTIVE CASES": 0,
+    "In Process - Investigating": 1,
+    "Waiting For Reply From Insurance": 1,
+    "Found": 2,
+    "Not Found / Potential Claim": 2,
+    "Not In Network": 2,
+    "CLOSED CASES": 0,
+    "Found And Returned": 1,
+    "Carrier Picked Up": 2,
+    "Found -Sent To Towing Yard": 2,
+    "Found - Recovered": 2,
+    "Not Liable Due To No Response": 2,
+    "Not Found": 1,
+    "Not Liable": 2,
+    "Liable": 2,
+    "RE-OPEN CLAIMS": 0,
+}
+
 
 def secrets_section(name: str) -> dict[str, Any]:
     try:
@@ -123,6 +161,9 @@ def aggregate_demo(
     period_columns: list[str],
 ) -> pd.DataFrame:
     groups = period_columns + [
+        "source",
+        "carrier_name",
+        "country",
         "status",
         "wbr_tier1",
         "wbr_tier2",
@@ -307,24 +348,32 @@ def money(value: float) -> str:
 
 def filter_claims(frame: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
     filtered = frame.copy()
-    columns = st.columns(4)
+    columns = st.columns(5)
     options = {
         "status": sorted(filtered.get("status", pd.Series(dtype=str)).dropna().unique()),
+        "source": sorted(filtered.get("source", pd.Series(dtype=str)).dropna().unique()),
         "country": sorted(filtered.get("country", pd.Series(dtype=str)).dropna().unique()),
         "carrier_name": sorted(
             filtered.get("carrier_name", pd.Series(dtype=str)).dropna().unique()
         ),
     }
     selections: dict[str, list[str]] = {}
-    labels = {"status": "Status", "country": "Country", "carrier_name": "Carrier"}
-    for index, column in enumerate(("status", "country", "carrier_name")):
+    labels = {
+        "status": "Status",
+        "source": "Provider",
+        "country": "Country",
+        "carrier_name": "Carrier",
+    }
+    for index, column in enumerate(
+        ("status", "source", "country", "carrier_name")
+    ):
         with columns[index]:
             selections[column] = st.multiselect(
                 labels[column],
                 options[column],
                 key=f"{key_prefix}_{column}",
             )
-    with columns[3]:
+    with columns[4]:
         search = st.text_input(
             "Claim number contains",
             key=f"{key_prefix}_search",
@@ -412,29 +461,43 @@ def hierarchy_values(
     hierarchy["row_key"] = hierarchy[
         ["wbr_tier1", "wbr_tier2", "wbr_tier3"]
     ].agg("|||".join, axis=1)
+    hierarchy["node_name"] = hierarchy.apply(
+        lambda row: row[f"wbr_tier{int(row['tier_level'])}"],
+        axis=1,
+    )
     hierarchy["category"] = hierarchy.apply(
         lambda row: (
-            ("\u00a0" * (int(row["tier_level"]) - 1) * 4)
-            + row[f"wbr_tier{int(row['tier_level'])}"]
+            (
+                "\u00a0"
+                * WBR_WATERFALL_INDENT.get(
+                    row["node_name"],
+                    int(row["tier_level"]) - 1,
+                )
+                * 4
+            )
+            + row["node_name"]
         ),
         axis=1,
     )
-    tier1_order = {
-        "ACTIVE CASES": "01",
-        "CLOSED CASES": "02",
-        "RE-OPEN CLAIMS": "03",
+    fallback_order = {
+        "ACTIVE CASES": 650,
+        "CLOSED CASES": 1550,
+        "RE-OPEN CLAIMS": 1700,
     }
     hierarchy["sort_key"] = hierarchy.apply(
         lambda row: "|".join(
             [
-                tier1_order.get(row["wbr_tier1"], "99"),
-                row["wbr_tier1"],
+                f"{WBR_WATERFALL_ORDER.get(
+                    row['node_name'],
+                    fallback_order.get(row['wbr_tier1'], 9000),
+                ):04d}",
                 (
-                    ""
-                    if int(row["tier_level"]) == 1
-                    else row["wbr_tier2"]
+                    row["node_name"]
+                    if int(row["tier_level"]) > 1
+                    else ""
                 ),
                 f"{int(row['tier_level'])}",
+                row["wbr_tier2"],
                 row["wbr_tier3"],
             ]
         ),
@@ -548,8 +611,52 @@ def render_period_review(
         st.info(f"No {grain.lower()} metrics are available yet.")
         return
 
+    filtered_metrics = metrics.copy()
+    filter_columns = st.columns(3)
+    with filter_columns[0]:
+        providers = st.multiselect(
+            "Provider",
+            sorted(
+                filtered_metrics["source"].dropna().astype(str).unique()
+            ),
+            key=f"{grain.lower()}_providers",
+        )
+    with filter_columns[1]:
+        carriers = st.multiselect(
+            "Carrier",
+            sorted(
+                filtered_metrics["carrier_name"].dropna().astype(str).unique()
+            ),
+            key=f"{grain.lower()}_carriers",
+        )
+    with filter_columns[2]:
+        countries = st.multiselect(
+            "Country",
+            sorted(
+                filtered_metrics["country"].dropna().astype(str).unique()
+            ),
+            key=f"{grain.lower()}_countries",
+        )
+    if providers:
+        filtered_metrics = filtered_metrics[
+            filtered_metrics["source"].isin(providers)
+        ]
+    if carriers:
+        filtered_metrics = filtered_metrics[
+            filtered_metrics["carrier_name"].isin(carriers)
+        ]
+    if countries:
+        filtered_metrics = filtered_metrics[
+            filtered_metrics["country"].isin(countries)
+        ]
+    if filtered_metrics.empty:
+        st.warning(
+            "No metrics match the selected provider, carrier, and country."
+        )
+        return
+
     periods = period_dimension(
-        metrics,
+        filtered_metrics,
         year_column,
         period_column,
         start_column,
@@ -594,7 +701,7 @@ def render_period_review(
         else "claim_value_usd"
     )
     pivot, previous_label = build_review_pivot(
-        metrics,
+        filtered_metrics,
         periods,
         selected_periods,
         start_column,
@@ -738,58 +845,14 @@ metric_columns[3].metric(
     exposure_delta,
 )
 
-overview_tab, weekly_tab, monthly_tab, current_tab, transitions_tab = st.tabs(
+weekly_tab, monthly_tab, current_tab, transitions_tab = st.tabs(
     [
-        "Overview",
         "Weekly Review",
         "Monthly Review",
-        "Current claims",
+        "Current Claims",
         "Transitions",
     ]
 )
-
-with overview_tab:
-    trend = (
-        weekly_metrics.groupby(
-            ["week_start_date", "wbr_tier1"],
-            dropna=False,
-        )["claim_count"]
-        .sum()
-        .unstack(fill_value=0)
-        .sort_index()
-    )
-    exposure = (
-        weekly_metrics.groupby(
-            ["week_start_date", "wbr_tier1"],
-            dropna=False,
-        )["claim_value_usd"]
-        .sum()
-        .unstack(fill_value=0)
-        .sort_index()
-    )
-    left, right = st.columns(2)
-    with left:
-        st.subheader("Weekly claim count")
-        st.line_chart(trend)
-    with right:
-        st.subheader("Weekly claim value")
-        st.line_chart(exposure)
-
-    latest_label = latest_week["period_label"]
-    st.subheader(f"Changes in {latest_label}")
-    changes = st.columns(3)
-    changes[0].metric(
-        "Open → Closed",
-        int(numeric_sum(latest_week_metrics, "open_to_closed_count")),
-    )
-    changes[1].metric(
-        "Closed → Open",
-        int(numeric_sum(latest_week_metrics, "reopened_count")),
-    )
-    changes[2].metric(
-        "New claims",
-        int(numeric_sum(latest_week_metrics, "new_claim_count")),
-    )
 
 with weekly_tab:
     render_period_review(

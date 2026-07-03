@@ -76,6 +76,9 @@ models:
             combination_of_columns:
               - report_year
               - report_week
+              - source
+              - carrier_name
+              - country
               - status
               - wbr_tier1
               - wbr_tier2
@@ -130,6 +133,9 @@ models:
             combination_of_columns:
               - metric_year
               - metric_month
+              - source
+              - carrier_name
+              - country
               - status
               - wbr_tier1
               - wbr_tier2
