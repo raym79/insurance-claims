@@ -87,3 +87,57 @@ models:
               arguments:
                 min_value: 0
                 strictly: false
+
+  - name: mart_claims_monthly
+    description: >
+      Latest claim state in each calendar month, including prior-month status
+      and a derived transition type.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - claim_number
+              - metric_year
+              - metric_month
+    columns:
+      - name: claim_number
+        data_tests:
+          - not_null
+      - name: metric_month
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 1
+                max_value: 12
+      - name: transition_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - NEW_CLAIM
+                  - NO_CHANGE
+                  - OPEN_TO_CLOSED
+                  - CLOSED_TO_OPEN
+                  - STATUS_CHANGED
+
+  - name: mart_claims_monthly_metrics
+    description: >
+      Monthly claim counts, exposure, and transition counts by status and WBR
+      classification for dashboard consumption.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - metric_year
+              - metric_month
+              - status
+              - wbr_tier1
+              - wbr_tier2
+              - wbr_tier3
+    columns:
+      - name: claim_count
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: false

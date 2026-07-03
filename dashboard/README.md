@@ -5,13 +5,18 @@ For a detailed Windows walkthrough, see
 
 The dashboard reads these dbt marts from BigQuery:
 
-- `mart_value_summary`
-- `mart_weekly_summary`
-- `mart_breakdown_active`
-- `mart_breakdown_closed`
+- `mart_claims_current`
+- `mart_claims_weekly`
+- `mart_claim_transitions_weekly`
+- `mart_claims_weekly_metrics`
+- `mart_claims_monthly`
+- `mart_claims_monthly_metrics`
 
 It includes a demo mode, so the interface can be explored before BigQuery
 authentication is configured.
+
+The dashboard supports Weekly and Monthly metric granularity. Historical
+deltas become available after at least two source snapshot periods exist.
 
 ## 1. Install Python
 

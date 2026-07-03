@@ -22,46 +22,43 @@ st.set_page_config(
 
 
 TABLES = {
-    "value": "mart_value_summary",
-    "weekly": "mart_weekly_summary",
-    "active": "mart_breakdown_active",
-    "closed": "mart_breakdown_closed",
+    "current": "mart_claims_current",
+    "weekly": "mart_claims_weekly",
+    "weekly_transitions": "mart_claim_transitions_weekly",
+    "weekly_metrics": "mart_claims_weekly_metrics",
+    "monthly": "mart_claims_monthly",
+    "monthly_metrics": "mart_claims_monthly_metrics",
 }
 
 PROJECT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 DATASET_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-WEEK_COUNT_PATTERN = re.compile(r"^wk(\d+)_count$")
 
 
-def secret_section() -> dict[str, Any]:
+def secrets_section(name: str) -> dict[str, Any]:
     try:
-        section = st.secrets.get("bigquery", {})
-        return dict(section)
+        return dict(st.secrets.get(name, {}))
     except (FileNotFoundError, KeyError):
         return {}
-
-
-def service_account_section() -> dict[str, Any]:
-    try:
-        section = st.secrets.get("gcp_service_account", {})
-        credentials_info = dict(section)
-    except (FileNotFoundError, KeyError):
-        return {}
-
-    private_key = credentials_info.get("private_key")
-    if isinstance(private_key, str):
-        credentials_info["private_key"] = private_key.replace("\\n", "\n")
-
-    return credentials_info
 
 
 def configured_value(name: str, default: str = "") -> str:
-    secrets = secret_section()
-    env_name = f"BQ_{name.upper()}"
-    return str(os.getenv(env_name, secrets.get(name, default)))
+    values = secrets_section("bigquery")
+    return str(os.getenv(f"BQ_{name.upper()}", values.get(name, default)))
 
 
-def validate_identifier(value: str, pattern: re.Pattern[str], label: str) -> str:
+def service_account_info() -> dict[str, Any]:
+    values = secrets_section("gcp_service_account")
+    private_key = values.get("private_key")
+    if isinstance(private_key, str):
+        values["private_key"] = private_key.replace("\\n", "\n")
+    return values
+
+
+def validate_identifier(
+    value: str,
+    pattern: re.Pattern[str],
+    label: str,
+) -> str:
     value = value.strip()
     if not value or not pattern.fullmatch(value):
         raise ValueError(f"Invalid {label}: {value!r}")
@@ -70,7 +67,7 @@ def validate_identifier(value: str, pattern: re.Pattern[str], label: str) -> str
 
 @st.cache_resource
 def bigquery_client(project_id: str, location: str) -> bigquery.Client:
-    credentials_info = service_account_section()
+    credentials_info = service_account_info()
     if credentials_info:
         credentials = service_account.Credentials.from_service_account_info(
             credentials_info,
@@ -81,8 +78,6 @@ def bigquery_client(project_id: str, location: str) -> bigquery.Client:
             credentials=credentials,
             location=location,
         )
-
-    # Local development fallback: gcloud Application Default Credentials.
     return bigquery.Client(project=project_id, location=location)
 
 
@@ -103,344 +98,254 @@ def query_mart(
     return client.query(sql).result().to_dataframe(create_bqstorage_client=False)
 
 
-def demo_data() -> dict[str, pd.DataFrame]:
-    value = pd.DataFrame(
-        [
-            {
-                "wbr_tier1": "ACTIVE CASES",
-                "wk16_value_usd": 210000,
-                "wk16_count": 11,
-                "wk17_value_usd": 245000,
-                "wk17_count": 13,
-                "wk18_value_usd": 198000,
-                "wk18_count": 10,
-                "wk19_value_usd": 275000,
-                "wk19_count": 15,
-                "wk20_value_usd": 260000,
-                "wk20_count": 14,
-                "wk21_value_usd": 310000,
-                "wk21_count": 17,
-                "ytd_value_usd": 1498000,
-                "ytd_count": 80,
-            },
-            {
-                "wbr_tier1": "CLOSED CASES",
-                "wk16_value_usd": 80000,
-                "wk16_count": 4,
-                "wk17_value_usd": 105000,
-                "wk17_count": 5,
-                "wk18_value_usd": 120000,
-                "wk18_count": 6,
-                "wk19_value_usd": 95000,
-                "wk19_count": 5,
-                "wk20_value_usd": 140000,
-                "wk20_count": 7,
-                "wk21_value_usd": 125000,
-                "wk21_count": 6,
-                "ytd_value_usd": 665000,
-                "ytd_count": 33,
-            },
-            {
-                "wbr_tier1": "RE-OPEN CLAIMS",
-                "wk16_value_usd": 18000,
-                "wk16_count": 1,
-                "wk17_value_usd": 0,
-                "wk17_count": 0,
-                "wk18_value_usd": 22000,
-                "wk18_count": 1,
-                "wk19_value_usd": 0,
-                "wk19_count": 0,
-                "wk20_value_usd": 16000,
-                "wk20_count": 1,
-                "wk21_value_usd": 24000,
-                "wk21_count": 1,
-                "ytd_value_usd": 80000,
-                "ytd_count": 4,
-            },
-        ]
+def add_transition_columns(frame: pd.DataFrame, delta_name: str) -> pd.DataFrame:
+    result = frame.copy()
+    result["status_changed"] = (
+        result["previous_status"].notna()
+        & (result["status"] != result["previous_status"])
+    )
+    result["transition_type"] = "NO_CHANGE"
+    result.loc[result["previous_status"].isna(), "transition_type"] = "NEW_CLAIM"
+    result.loc[
+        (result["previous_status"] == "Open") & (result["status"] == "Closed"),
+        "transition_type",
+    ] = "OPEN_TO_CLOSED"
+    result.loc[
+        (result["previous_status"] == "Closed") & (result["status"] == "Open"),
+        "transition_type",
+    ] = "CLOSED_TO_OPEN"
+    result[delta_name] = result["value_usd"] - result["previous_value_usd"]
+    return result
+
+
+def aggregate_demo(
+    frame: pd.DataFrame,
+    period_columns: list[str],
+) -> pd.DataFrame:
+    groups = period_columns + [
+        "status",
+        "wbr_tier1",
+        "wbr_tier2",
+        "wbr_tier3",
+    ]
+    return (
+        frame.groupby(groups, dropna=False)
+        .agg(
+            claim_count=("claim_number", "size"),
+            claim_value_usd=("value_usd", "sum"),
+            new_claim_count=(
+                "transition_type",
+                lambda values: (values == "NEW_CLAIM").sum(),
+            ),
+            open_to_closed_count=(
+                "transition_type",
+                lambda values: (values == "OPEN_TO_CLOSED").sum(),
+            ),
+            reopened_count=(
+                "transition_type",
+                lambda values: (values == "CLOSED_TO_OPEN").sum(),
+            ),
+            status_change_count=("status_changed", "sum"),
+        )
+        .reset_index()
     )
 
+
+def demo_data() -> dict[str, pd.DataFrame]:
+    base = {
+        "country": "US",
+        "carrier_name": "Demo Carrier",
+        "source": "Demo",
+        "currency": "USD",
+        "wbr_tier2": "In Process - Investigating",
+        "wbr_tier3": None,
+    }
     weekly = pd.DataFrame(
         [
             {
-                "category": "ACTIVE CASES",
-                "sort_order": 1,
-                "indent_level": 0,
-                "wk20_count": 14,
-                "wk20_value_usd": 260000,
-                "wk21_count": 17,
-                "wk21_value_usd": 310000,
-                "ytd_count": 80,
-                "ytd_value_usd": 1498000,
-            },
-            {
-                "category": "  In Process - Investigating",
-                "sort_order": 2,
-                "indent_level": 1,
-                "wk20_count": 8,
-                "wk20_value_usd": 145000,
-                "wk21_count": 9,
-                "wk21_value_usd": 165000,
-                "ytd_count": 43,
-                "ytd_value_usd": 810000,
-            },
-            {
-                "category": "CLOSED CASES",
-                "sort_order": 7,
-                "indent_level": 0,
-                "wk20_count": 7,
-                "wk20_value_usd": 140000,
-                "wk21_count": 6,
-                "wk21_value_usd": 125000,
-                "ytd_count": 33,
-                "ytd_value_usd": 665000,
-            },
-            {
-                "category": "RE-OPEN CLAIMS",
-                "sort_order": 16,
-                "indent_level": 0,
-                "wk20_count": 1,
-                "wk20_value_usd": 16000,
-                "wk21_count": 1,
-                "wk21_value_usd": 24000,
-                "ytd_count": 4,
-                "ytd_value_usd": 80000,
-            },
-        ]
-    )
-
-    active = pd.DataFrame(
-        [
-            {
+                **base,
                 "claim_number": "CLM-1001",
-                "country": "US",
-                "carrier_name": "Northstar",
-                "trailer_license_plate": "TR-4821",
-                "trailer_number": "T-100",
+                "snapshot_date": date(2026, 6, 27),
+                "report_year": 2026,
+                "report_week": 26,
+                "week_start_date": date(2026, 6, 21),
+                "week_end_date": date(2026, 6, 27),
                 "status": "Open",
-                "reason": "Found",
-                "insurance_claims_results": "Waiting For Reply",
-                "source": "Sedgwick",
-                "submitted_date": date(2026, 5, 18),
-                "date_of_loss": date(2026, 5, 15),
-                "value_of_trailer": 28000,
-                "value_usd": 28000,
-                "currency": "USD",
                 "wbr_tier1": "ACTIVE CASES",
-                "wbr_tier2": "Waiting For Reply From Insurance",
-                "wbr_tier3": "Found",
-                "submitted_year": 2026,
-                "submitted_week": 21,
-                "breakdown_section": "WAITING_FOR_REPLY_FOUND",
+                "value_usd": 28000.0,
+                "previous_status": None,
+                "previous_wbr_tier1": None,
+                "previous_value_usd": None,
             },
             {
+                **base,
                 "claim_number": "CLM-1002",
-                "country": "CA",
-                "carrier_name": "Maple Freight",
-                "trailer_license_plate": "ON-9027",
-                "trailer_number": "T-204",
-                "status": "Open",
-                "reason": "No Longer In Network",
-                "insurance_claims_results": "Waiting For Reply",
-                "source": "Xceedance",
-                "submitted_date": date(2026, 5, 20),
-                "date_of_loss": date(2026, 5, 17),
-                "value_of_trailer": 34000,
-                "value_usd": 23800,
-                "currency": "CAD",
-                "wbr_tier1": "ACTIVE CASES",
-                "wbr_tier2": "Waiting For Reply From Insurance",
-                "wbr_tier3": "Not In Network",
-                "submitted_year": 2026,
-                "submitted_week": 21,
-                "breakdown_section": "WAITING_FOR_REPLY_NOT_IN_NETWORK",
-            },
-            {
-                "claim_number": "CLM-1003",
-                "country": "US",
-                "carrier_name": "Blue Road",
-                "trailer_license_plate": "TX-3190",
-                "trailer_number": "T-331",
-                "status": "Open",
-                "reason": "",
-                "insurance_claims_results": "Investigating",
-                "source": "Sedgwick",
-                "submitted_date": date(2026, 5, 19),
-                "date_of_loss": date(2026, 5, 19),
-                "value_of_trailer": 31000,
-                "value_usd": 31000,
-                "currency": "USD",
-                "wbr_tier1": "RE-OPEN CLAIMS",
-                "wbr_tier2": "Re-Opened",
-                "wbr_tier3": None,
-                "submitted_year": 2026,
-                "submitted_week": 21,
-                "breakdown_section": "RE_OPENED",
-            },
-        ]
-    )
-
-    closed = pd.DataFrame(
-        [
-            {
-                "claim_number": "CLM-0901",
-                "country": "US",
-                "carrier_name": "Northstar",
-                "trailer_license_plate": "IL-1198",
-                "trailer_number": "T-077",
+                "snapshot_date": date(2026, 6, 27),
+                "report_year": 2026,
+                "report_week": 26,
+                "week_start_date": date(2026, 6, 21),
+                "week_end_date": date(2026, 6, 27),
                 "status": "Closed",
-                "reason": "Found",
-                "insurance_claims_results": "Resolved",
-                "results": "Found & Recovered",
-                "source": "Sedgwick",
-                "case_date_closed": date(2026, 5, 21),
-                "value_of_trailer": 29500,
-                "value_usd": 29500,
-                "currency": "USD",
-                "wbr_tier1": "CLOSED CASES",
-                "wbr_tier2": "Found And Returned",
-                "wbr_tier3": "Found - Recovered",
-                "closed_year": 2026,
-                "closed_week": 21,
-            },
-            {
-                "claim_number": "CLM-0902",
-                "country": "CA",
-                "carrier_name": "Maple Freight",
-                "trailer_license_plate": "QC-3301",
-                "trailer_number": "T-081",
-                "status": "Closed",
-                "reason": "Not Found",
-                "insurance_claims_results": "Amazon Not Liable",
-                "results": "",
-                "source": "Xceedance",
-                "case_date_closed": date(2026, 5, 20),
-                "value_of_trailer": 26000,
-                "value_usd": 18200,
-                "currency": "CAD",
                 "wbr_tier1": "CLOSED CASES",
                 "wbr_tier2": "Not Found",
-                "wbr_tier3": "Not Liable",
-                "closed_year": 2026,
-                "closed_week": 21,
+                "value_usd": 22000.0,
+                "previous_status": None,
+                "previous_wbr_tier1": None,
+                "previous_value_usd": None,
+            },
+            {
+                **base,
+                "claim_number": "CLM-1001",
+                "snapshot_date": date(2026, 7, 4),
+                "report_year": 2026,
+                "report_week": 27,
+                "week_start_date": date(2026, 6, 28),
+                "week_end_date": date(2026, 7, 4),
+                "status": "Closed",
+                "wbr_tier1": "CLOSED CASES",
+                "wbr_tier2": "Found And Returned",
+                "value_usd": 28000.0,
+                "previous_status": "Open",
+                "previous_wbr_tier1": "ACTIVE CASES",
+                "previous_value_usd": 28000.0,
+            },
+            {
+                **base,
+                "claim_number": "CLM-1002",
+                "snapshot_date": date(2026, 7, 4),
+                "report_year": 2026,
+                "report_week": 27,
+                "week_start_date": date(2026, 6, 28),
+                "week_end_date": date(2026, 7, 4),
+                "status": "Open",
+                "wbr_tier1": "RE-OPEN CLAIMS",
+                "wbr_tier2": "Re-Opened",
+                "value_usd": 22000.0,
+                "previous_status": "Closed",
+                "previous_wbr_tier1": "CLOSED CASES",
+                "previous_value_usd": 22000.0,
             },
         ]
     )
+    weekly = add_transition_columns(
+        weekly,
+        "week_over_week_value_delta_usd",
+    )
+
+    monthly = weekly.copy()
+    monthly["metric_year"] = [2026, 2026, 2026, 2026]
+    monthly["metric_month"] = [6, 6, 7, 7]
+    monthly["month_start_date"] = [
+        date(2026, 6, 1),
+        date(2026, 6, 1),
+        date(2026, 7, 1),
+        date(2026, 7, 1),
+    ]
+    monthly["month_end_date"] = [
+        date(2026, 6, 30),
+        date(2026, 6, 30),
+        date(2026, 7, 31),
+        date(2026, 7, 31),
+    ]
+    monthly["month_over_month_value_delta_usd"] = (
+        monthly["value_usd"] - monthly["previous_value_usd"]
+    )
+
+    current = (
+        weekly.sort_values("snapshot_date")
+        .groupby("claim_number", as_index=False)
+        .tail(1)
+        .reset_index(drop=True)
+    )
+    transitions = weekly[weekly["status_changed"]].copy()
 
     return {
-        "value": value,
+        "current": current,
         "weekly": weekly,
-        "active": active,
-        "closed": closed,
+        "weekly_transitions": transitions,
+        "weekly_metrics": aggregate_demo(
+            weekly,
+            [
+                "report_year",
+                "report_week",
+                "week_start_date",
+                "week_end_date",
+            ],
+        ),
+        "monthly": monthly,
+        "monthly_metrics": aggregate_demo(
+            monthly,
+            [
+                "metric_year",
+                "metric_month",
+                "month_start_date",
+                "month_end_date",
+            ],
+        ),
     }
 
 
-def money(value: Any) -> str:
-    number = pd.to_numeric(pd.Series([value]), errors="coerce").fillna(0).iloc[0]
-    return f"${number:,.0f}"
+def numeric_sum(frame: pd.DataFrame, column: str) -> float:
+    if frame.empty or column not in frame.columns:
+        return 0.0
+    return float(pd.to_numeric(frame[column], errors="coerce").fillna(0).sum())
 
 
-def integer(value: Any) -> int:
-    return int(pd.to_numeric(pd.Series([value]), errors="coerce").fillna(0).iloc[0])
-
-
-def status_value(frame: pd.DataFrame, status: str, column: str) -> float:
-    if (
-        frame.empty
-        or "wbr_tier1" not in frame.columns
-        or column not in frame.columns
-    ):
-        return 0
-    rows = frame.loc[frame["wbr_tier1"] == status, column]
-    return float(pd.to_numeric(rows, errors="coerce").fillna(0).sum())
-
-
-def weekly_trend(value_summary: pd.DataFrame) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
-    for column in value_summary.columns:
-        match = WEEK_COUNT_PATTERN.match(column)
-        if not match:
-            continue
-        week = int(match.group(1))
-        value_column = f"wk{week}_value_usd"
-        rows.append(
-            {
-                "week": f"WK{week}",
-                "claim_count": integer(value_summary[column].sum()),
-                "claim_value_usd": float(
-                    pd.to_numeric(
-                        value_summary.get(value_column, pd.Series(dtype=float)),
-                        errors="coerce",
-                    )
-                    .fillna(0)
-                    .sum()
-                ),
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def filter_frame(
+def tier_metric(
     frame: pd.DataFrame,
-    prefix: str,
-    include_section: bool = False,
-) -> pd.DataFrame:
+    tier: str,
+    column: str = "claim_count",
+) -> float:
+    if frame.empty or "wbr_tier1" not in frame.columns:
+        return 0.0
+    return numeric_sum(frame[frame["wbr_tier1"] == tier], column)
+
+
+def money(value: float) -> str:
+    return f"${value:,.0f}"
+
+
+def filter_claims(frame: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
     filtered = frame.copy()
-    controls = st.columns(3)
-
-    countries = sorted(filtered.get("country", pd.Series(dtype=str)).dropna().unique())
-    carriers = sorted(
-        filtered.get("carrier_name", pd.Series(dtype=str)).dropna().unique()
-    )
-
-    with controls[0]:
-        selected_countries = st.multiselect(
-            "Country",
-            countries,
-            key=f"{prefix}_country",
-        )
-    with controls[1]:
-        selected_carriers = st.multiselect(
-            "Carrier",
-            carriers,
-            key=f"{prefix}_carrier",
-        )
-    with controls[2]:
-        claim_search = st.text_input(
+    columns = st.columns(4)
+    options = {
+        "status": sorted(filtered.get("status", pd.Series(dtype=str)).dropna().unique()),
+        "country": sorted(filtered.get("country", pd.Series(dtype=str)).dropna().unique()),
+        "carrier_name": sorted(
+            filtered.get("carrier_name", pd.Series(dtype=str)).dropna().unique()
+        ),
+    }
+    selections: dict[str, list[str]] = {}
+    labels = {"status": "Status", "country": "Country", "carrier_name": "Carrier"}
+    for index, column in enumerate(("status", "country", "carrier_name")):
+        with columns[index]:
+            selections[column] = st.multiselect(
+                labels[column],
+                options[column],
+                key=f"{key_prefix}_{column}",
+            )
+    with columns[3]:
+        search = st.text_input(
             "Claim number contains",
-            key=f"{prefix}_claim_search",
+            key=f"{key_prefix}_search",
         )
 
-    if selected_countries:
-        filtered = filtered[filtered["country"].isin(selected_countries)]
-    if selected_carriers:
-        filtered = filtered[filtered["carrier_name"].isin(selected_carriers)]
-    if claim_search:
+    for column, selected in selections.items():
+        if selected:
+            filtered = filtered[filtered[column].isin(selected)]
+    if search:
         filtered = filtered[
             filtered["claim_number"]
             .astype(str)
-            .str.contains(claim_search, case=False, na=False)
+            .str.contains(search, case=False, na=False)
         ]
-
-    if include_section and "breakdown_section" in filtered.columns:
-        sections = sorted(filtered["breakdown_section"].dropna().unique())
-        selected_sections = st.multiselect(
-            "Breakdown section",
-            sections,
-            key=f"{prefix}_section",
-        )
-        if selected_sections:
-            filtered = filtered[
-                filtered["breakdown_section"].isin(selected_sections)
-            ]
-
     return filtered
 
 
 def download_csv(frame: pd.DataFrame, filename: str, key: str) -> None:
     st.download_button(
         "Download CSV",
-        data=frame.to_csv(index=False).encode("utf-8"),
+        frame.to_csv(index=False).encode("utf-8"),
         file_name=filename,
         mime="text/csv",
         key=key,
@@ -448,7 +353,7 @@ def download_csv(frame: pd.DataFrame, filename: str, key: str) -> None:
 
 
 st.title("Insurance Claims Dashboard")
-st.caption("Executive summary and claim-level detail from dbt marts in BigQuery")
+st.caption("Current claim state, historical trends, and status transitions")
 
 default_project = configured_value("project_id", "ray-project-500821")
 default_dataset = configured_value("marts_dataset", "")
@@ -456,10 +361,9 @@ default_location = configured_value("location", "US")
 
 with st.sidebar:
     st.header("Data source")
-    source_options = ["BigQuery", "Demo data"]
     selected_source = st.radio(
         "Choose data source",
-        source_options,
+        ["BigQuery", "Demo data"],
         index=0 if default_dataset else 1,
     )
     use_demo = selected_source == "Demo data"
@@ -468,7 +372,7 @@ with st.sidebar:
     location = st.text_input("BigQuery location", value=default_location)
     auth_method = (
         "Streamlit service account"
-        if service_account_section()
+        if service_account_info()
         else "Application Default Credentials"
     )
     st.caption(f"Authentication: {auth_method}")
@@ -479,12 +383,11 @@ with st.sidebar:
 
 if use_demo:
     data = demo_data()
-    st.info("Displaying bundled demo data. Select BigQuery in the sidebar for live data.")
+    st.info("Displaying demo history. Select BigQuery for live dbt marts.")
 else:
     if not marts_dataset or marts_dataset.startswith("YOUR_"):
-        st.error("Set the BigQuery mart dataset in the sidebar or secrets.toml.")
+        st.error("Set the BigQuery mart dataset in the sidebar or secrets.")
         st.stop()
-
     try:
         with st.spinner("Loading dbt marts from BigQuery..."):
             data = {
@@ -495,146 +398,209 @@ else:
         st.error(f"Unable to load BigQuery data ({type(exc).__name__}).")
         st.caption(
             "On Streamlit Cloud, configure [gcp_service_account] in App "
-            "settings → Secrets. Also confirm the dataset, location, and "
-            "BigQuery permissions."
+            "settings → Secrets. Also confirm the new marts have been built."
         )
         st.stop()
 
-value_summary = data["value"]
-weekly_summary = data["weekly"]
-active_claims = data["active"]
-closed_claims = data["closed"]
+grain = st.sidebar.radio("Metric granularity", ["Weekly", "Monthly"])
+if grain == "Weekly":
+    metrics = data["weekly_metrics"].copy()
+    states = data["weekly"].copy()
+    year_column = "report_year"
+    period_column = "report_week"
+    start_column = "week_start_date"
+    end_column = "week_end_date"
+    period_prefix = "WK"
+else:
+    metrics = data["monthly_metrics"].copy()
+    states = data["monthly"].copy()
+    year_column = "metric_year"
+    period_column = "metric_month"
+    start_column = "month_start_date"
+    end_column = "month_end_date"
+    period_prefix = "M"
 
-count_columns = [
-    column for column in value_summary.columns if WEEK_COUNT_PATTERN.match(column)
+if metrics.empty:
+    st.warning("No historical metrics exist yet. Build the new dbt marts first.")
+    st.stop()
+
+periods = (
+    metrics[[year_column, period_column, start_column, end_column]]
+    .drop_duplicates()
+    .sort_values(start_column)
+    .reset_index(drop=True)
+)
+periods["label"] = periods.apply(
+    lambda row: (
+        f"{int(row[year_column])}-{period_prefix}{int(row[period_column]):02d}"
+    ),
+    axis=1,
+)
+
+selected_label = st.sidebar.selectbox(
+    f"{grain} period",
+    periods["label"].tolist(),
+    index=len(periods) - 1,
+)
+selected_index = periods.index[periods["label"] == selected_label][0]
+selected_period = periods.loc[selected_index]
+previous_period = periods.loc[selected_index - 1] if selected_index > 0 else None
+
+selected_metrics = metrics[
+    (metrics[year_column] == selected_period[year_column])
+    & (metrics[period_column] == selected_period[period_column])
 ]
-latest_count_column = count_columns[-1] if count_columns else "ytd_count"
-latest_week = (
-    latest_count_column.removeprefix("wk").removesuffix("_count")
-    if latest_count_column.startswith("wk")
-    else "YTD"
-)
+if previous_period is None:
+    previous_metrics = pd.DataFrame(columns=metrics.columns)
+else:
+    previous_metrics = metrics[
+        (metrics[year_column] == previous_period[year_column])
+        & (metrics[period_column] == previous_period[period_column])
+    ]
 
+selected_states = states[
+    (states[year_column] == selected_period[year_column])
+    & (states[period_column] == selected_period[period_column])
+]
+period_transitions = selected_states[
+    selected_states.get("status_changed", False).fillna(False)
+].copy()
+
+kpis = [
+    ("Active claims", "ACTIVE CASES"),
+    ("Closed claims", "CLOSED CASES"),
+    ("Re-opened claims", "RE-OPEN CLAIMS"),
+]
 metric_columns = st.columns(4)
-metric_columns[0].metric(
-    f"Active claims · WK{latest_week}",
-    integer(status_value(value_summary, "ACTIVE CASES", latest_count_column)),
-)
-metric_columns[1].metric(
-    f"Closed claims · WK{latest_week}",
-    integer(status_value(value_summary, "CLOSED CASES", latest_count_column)),
-)
-metric_columns[2].metric(
-    f"Re-opened · WK{latest_week}",
-    integer(status_value(value_summary, "RE-OPEN CLAIMS", latest_count_column)),
+for column, (label, tier) in zip(metric_columns[:3], kpis):
+    current_value = int(tier_metric(selected_metrics, tier))
+    previous_value = int(tier_metric(previous_metrics, tier))
+    delta = current_value - previous_value if previous_period is not None else None
+    column.metric(label, current_value, delta)
+
+current_exposure = numeric_sum(selected_metrics, "claim_value_usd")
+previous_exposure = numeric_sum(previous_metrics, "claim_value_usd")
+exposure_delta = (
+    money(current_exposure - previous_exposure)
+    if previous_period is not None
+    else None
 )
 metric_columns[3].metric(
-    "YTD claim value",
-    money(
-        pd.to_numeric(
-            value_summary.get("ytd_value_usd", pd.Series(dtype=float)),
-            errors="coerce",
-        )
-        .fillna(0)
-        .sum()
-    ),
+    "Claim value",
+    money(current_exposure),
+    exposure_delta,
 )
 
-overview_tab, categories_tab, active_tab, closed_tab = st.tabs(
-    ["Overview", "Category summary", "Active claims", "Closed claims"]
+overview_tab, metrics_tab, current_tab, history_tab, transitions_tab = st.tabs(
+    [
+        "Overview",
+        f"{grain} metrics",
+        "Current claims",
+        "Claim history",
+        "Transitions",
+    ]
 )
 
 with overview_tab:
-    trend = weekly_trend(value_summary)
+    trend = (
+        metrics.groupby([start_column, "wbr_tier1"], dropna=False)["claim_count"]
+        .sum()
+        .unstack(fill_value=0)
+        .sort_index()
+    )
+    exposure = (
+        metrics.groupby([start_column, "wbr_tier1"], dropna=False)[
+            "claim_value_usd"
+        ]
+        .sum()
+        .unstack(fill_value=0)
+        .sort_index()
+    )
     left, right = st.columns(2)
     with left:
-        st.subheader("Claims by report week")
-        if trend.empty:
-            st.warning("No weekly count columns were found.")
-        else:
-            st.line_chart(trend.set_index("week")["claim_count"])
+        st.subheader(f"{grain} claim count")
+        st.line_chart(trend)
     with right:
-        st.subheader("Claim value by report week")
-        if trend.empty:
-            st.warning("No weekly value columns were found.")
-        else:
-            st.bar_chart(trend.set_index("week")["claim_value_usd"])
+        st.subheader(f"{grain} claim value")
+        st.line_chart(exposure)
 
-    st.subheader("YTD value by status")
-    if {"wbr_tier1", "ytd_value_usd"}.issubset(value_summary.columns):
-        ytd = value_summary[["wbr_tier1", "ytd_value_usd"]].copy()
-        ytd["ytd_value_usd"] = pd.to_numeric(
-            ytd["ytd_value_usd"], errors="coerce"
-        ).fillna(0)
-        st.bar_chart(ytd.set_index("wbr_tier1")["ytd_value_usd"])
-
-with categories_tab:
-    st.subheader("Weekly category hierarchy")
-    if "sort_order" in weekly_summary.columns:
-        weekly_summary = weekly_summary.sort_values("sort_order")
-    st.dataframe(
-        weekly_summary,
-        hide_index=True,
-        use_container_width=True,
+    st.subheader(f"Changes in {selected_label}")
+    changes = st.columns(3)
+    changes[0].metric(
+        "Open → Closed",
+        int(numeric_sum(selected_metrics, "open_to_closed_count")),
     )
+    changes[1].metric(
+        "Closed → Open",
+        int(numeric_sum(selected_metrics, "reopened_count")),
+    )
+    changes[2].metric(
+        "New claims",
+        int(numeric_sum(selected_metrics, "new_claim_count")),
+    )
+
+with metrics_tab:
+    category_metrics = (
+        selected_metrics.groupby(
+            ["wbr_tier1", "wbr_tier2", "wbr_tier3"],
+            dropna=False,
+        )
+        .agg(
+            claim_count=("claim_count", "sum"),
+            claim_value_usd=("claim_value_usd", "sum"),
+            status_changes=("status_change_count", "sum"),
+        )
+        .reset_index()
+        .sort_values(["wbr_tier1", "wbr_tier2", "wbr_tier3"])
+    )
+    st.dataframe(category_metrics, hide_index=True, use_container_width=True)
     download_csv(
-        weekly_summary,
-        "weekly_category_summary.csv",
-        "download_weekly",
+        category_metrics,
+        f"{grain.lower()}_metrics_{selected_label}.csv",
+        "download_metrics",
     )
 
-with active_tab:
-    st.subheader("Active and re-opened claims")
-    filtered_active = filter_frame(
-        active_claims,
-        "active",
-        include_section=True,
-    )
-    st.caption(f"{len(filtered_active):,} matching claims")
+with current_tab:
+    filtered_current = filter_claims(data["current"], "current")
+    st.caption(f"{len(filtered_current):,} matching current claims")
+    st.dataframe(filtered_current, hide_index=True, use_container_width=True)
+    download_csv(filtered_current, "current_claims.csv", "download_current")
 
-    if "breakdown_section" in filtered_active.columns and not filtered_active.empty:
-        section_counts = (
-            filtered_active["breakdown_section"]
+with history_tab:
+    filtered_history = filter_claims(selected_states, "history")
+    st.caption(f"{len(filtered_history):,} claim states in {selected_label}")
+    st.dataframe(filtered_history, hide_index=True, use_container_width=True)
+    download_csv(
+        filtered_history,
+        f"claim_history_{selected_label}.csv",
+        "download_history",
+    )
+
+with transitions_tab:
+    if period_transitions.empty:
+        st.info(
+            "No prior-period status changes are available. With the first "
+            "snapshot, every claim is NEW_CLAIM; deltas begin after the next "
+            "snapshot period."
+        )
+    else:
+        transition_counts = (
+            period_transitions["transition_type"]
             .value_counts()
-            .rename_axis("section")
+            .rename_axis("transition")
             .to_frame("claims")
         )
-        st.bar_chart(section_counts)
-
-    st.dataframe(
-        filtered_active,
-        hide_index=True,
-        use_container_width=True,
-    )
-    download_csv(filtered_active, "active_claims.csv", "download_active")
-
-with closed_tab:
-    st.subheader("Closed claims")
-    filtered_closed = filter_frame(closed_claims, "closed")
-    st.caption(f"{len(filtered_closed):,} matching claims")
-
-    if "wbr_tier3" in filtered_closed.columns and not filtered_closed.empty:
-        outcome_counts = (
-            filtered_closed["wbr_tier3"]
-            .fillna("Unclassified")
-            .value_counts()
-            .rename_axis("outcome")
-            .to_frame("claims")
+        st.bar_chart(transition_counts)
+        st.dataframe(
+            period_transitions,
+            hide_index=True,
+            use_container_width=True,
         )
-        st.bar_chart(outcome_counts)
-
-    if "case_date_closed" in filtered_closed.columns:
-        filtered_closed = filtered_closed.sort_values(
-            "case_date_closed",
-            ascending=False,
+        download_csv(
+            period_transitions,
+            f"claim_transitions_{selected_label}.csv",
+            "download_transitions",
         )
-
-    st.dataframe(
-        filtered_closed,
-        hide_index=True,
-        use_container_width=True,
-    )
-    download_csv(filtered_closed, "closed_claims.csv", "download_closed")
 
 st.caption(
     f"Loaded {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} · "
