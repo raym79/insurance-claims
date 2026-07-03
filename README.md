@@ -4,7 +4,7 @@ An end-to-end Business Intelligence and Analytics Engineering portfolio
 project that transforms historical insurance-claim snapshots in BigQuery into
 tested analytical marts and an interactive Streamlit dashboard.
 
-**Live dashboard:** [Open the Insurance Claims Dashboard](https://insurance-claims-gkcp4jjuwyqfra8pgbwezj.streamlit.app/)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://insurance-claims-gkcp4jjuwyqfra8pgbwezj.streamlit.app/)
 
 ## Business problem
 

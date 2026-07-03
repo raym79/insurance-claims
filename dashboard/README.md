@@ -4,7 +4,7 @@ The dashboard entry point is `dashboard/streamlit_app.py`. For a detailed
 Windows and virtual-environment walkthrough, see the local
 `STREAMLIT_GETTING_STARTED.md` guide.
 
-**Live dashboard:** [Insurance Claims Dashboard](https://insurance-claims-gkcp4jjuwyqfra8pgbwezj.streamlit.app/)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://insurance-claims-gkcp4jjuwyqfra8pgbwezj.streamlit.app/)
 
 ## Dashboard behavior
 
