@@ -352,6 +352,289 @@ def download_csv(frame: pd.DataFrame, filename: str, key: str) -> None:
     )
 
 
+def period_dimension(
+    metrics: pd.DataFrame,
+    year_column: str,
+    period_column: str,
+    start_column: str,
+    end_column: str,
+    label_prefix: str,
+) -> pd.DataFrame:
+    periods = metrics[
+        [year_column, period_column, start_column, end_column]
+    ].drop_duplicates()
+    periods[start_column] = pd.to_datetime(periods[start_column])
+    periods[end_column] = pd.to_datetime(periods[end_column])
+    periods = periods.sort_values(start_column).reset_index(drop=True)
+    periods["period_label"] = periods.apply(
+        lambda row: (
+            f"{int(row[year_column])}-{label_prefix}"
+            f"{int(row[period_column]):02d}"
+        ),
+        axis=1,
+    )
+    return periods
+
+
+def hierarchy_values(
+    metrics: pd.DataFrame,
+    start_column: str,
+    measure: str,
+) -> pd.DataFrame:
+    source = metrics.copy()
+    source[start_column] = pd.to_datetime(source[start_column])
+    for column in ("wbr_tier1", "wbr_tier2", "wbr_tier3"):
+        source[column] = source[column].fillna("").astype(str).str.strip()
+
+    frames: list[pd.DataFrame] = []
+    level_columns = {
+        1: ["wbr_tier1"],
+        2: ["wbr_tier1", "wbr_tier2"],
+        3: ["wbr_tier1", "wbr_tier2", "wbr_tier3"],
+    }
+    for level, tier_columns in level_columns.items():
+        level_source = source[source[tier_columns[-1]] != ""]
+        grouped = (
+            level_source.groupby(
+                [start_column, *tier_columns],
+                dropna=False,
+            )[measure]
+            .sum()
+            .reset_index(name="metric_value")
+        )
+        for column in ("wbr_tier1", "wbr_tier2", "wbr_tier3"):
+            if column not in grouped.columns:
+                grouped[column] = ""
+        grouped["tier_level"] = level
+        frames.append(grouped)
+
+    hierarchy = pd.concat(frames, ignore_index=True)
+    hierarchy["row_key"] = hierarchy[
+        ["wbr_tier1", "wbr_tier2", "wbr_tier3"]
+    ].agg("|||".join, axis=1)
+    hierarchy["category"] = hierarchy.apply(
+        lambda row: (
+            ("\u00a0" * (int(row["tier_level"]) - 1) * 4)
+            + row[f"wbr_tier{int(row['tier_level'])}"]
+        ),
+        axis=1,
+    )
+    tier1_order = {
+        "ACTIVE CASES": "01",
+        "CLOSED CASES": "02",
+        "RE-OPEN CLAIMS": "03",
+    }
+    hierarchy["sort_key"] = hierarchy.apply(
+        lambda row: "|".join(
+            [
+                tier1_order.get(row["wbr_tier1"], "99"),
+                row["wbr_tier1"],
+                (
+                    ""
+                    if int(row["tier_level"]) == 1
+                    else row["wbr_tier2"]
+                ),
+                f"{int(row['tier_level'])}",
+                row["wbr_tier3"],
+            ]
+        ),
+        axis=1,
+    )
+    return hierarchy
+
+
+def comparison_text(current: float, previous: float, measure: str) -> str:
+    delta = current - previous
+    if previous == 0:
+        percent = "new" if current != 0 else "0.0%"
+    else:
+        percent = f"{delta / previous:+.1%}"
+    if measure == "claim_value_usd":
+        absolute = f"{'-' if delta < 0 else '+'}${abs(delta):,.0f}"
+    else:
+        absolute = f"{delta:+,.0f}"
+    return f"{absolute} ({percent})"
+
+
+def build_review_pivot(
+    metrics: pd.DataFrame,
+    periods: pd.DataFrame,
+    selected_periods: pd.DataFrame,
+    start_column: str,
+    measure: str,
+) -> tuple[pd.DataFrame, str | None]:
+    hierarchy = hierarchy_values(metrics, start_column, measure)
+    labels = periods.set_index(start_column)["period_label"].to_dict()
+    selected_starts = selected_periods[start_column].tolist()
+    last_start = selected_starts[-1]
+    last_index = periods.index[periods[start_column] == last_start][0]
+    previous_start = (
+        periods.loc[last_index - 1, start_column] if last_index > 0 else None
+    )
+
+    comparison_starts = [last_start]
+    if previous_start is not None:
+        comparison_starts.append(previous_start)
+    relevant = hierarchy[
+        hierarchy[start_column].isin([*selected_starts, *comparison_starts])
+    ]
+    row_metadata = (
+        relevant[["row_key", "category", "sort_key"]]
+        .drop_duplicates()
+        .sort_values("sort_key")
+    )
+
+    selected_values = hierarchy[hierarchy[start_column].isin(selected_starts)]
+    pivot = selected_values.pivot_table(
+        index="row_key",
+        columns=start_column,
+        values="metric_value",
+        aggfunc="sum",
+        fill_value=0,
+    )
+    pivot = pivot.reindex(columns=selected_starts, fill_value=0)
+    pivot.columns = [labels[column] for column in pivot.columns]
+    result = row_metadata.set_index("row_key").join(pivot, how="left").fillna(0)
+
+    if previous_start is not None:
+        comparison = hierarchy[
+            hierarchy[start_column].isin([previous_start, last_start])
+        ].pivot_table(
+            index="row_key",
+            columns=start_column,
+            values="metric_value",
+            aggfunc="sum",
+            fill_value=0,
+        )
+        current_values = comparison.get(
+            last_start,
+            pd.Series(0, index=comparison.index),
+        )
+        previous_values = comparison.get(
+            previous_start,
+            pd.Series(0, index=comparison.index),
+        )
+        result["comparison"] = [
+            comparison_text(
+                float(current_values.get(row_key, 0)),
+                float(previous_values.get(row_key, 0)),
+                measure,
+            )
+            for row_key in result.index
+        ]
+        comparison_period = labels[previous_start]
+    else:
+        result["comparison"] = "N/A"
+        comparison_period = None
+
+    result = result.sort_values("sort_key").drop(columns="sort_key")
+    result = result.rename(columns={"category": "WBR waterfall"})
+    return result.reset_index(drop=True), comparison_period
+
+
+def render_period_review(
+    metrics: pd.DataFrame,
+    grain: str,
+    year_column: str,
+    period_column: str,
+    start_column: str,
+    end_column: str,
+    label_prefix: str,
+    comparison_label: str,
+    default_period_count: int,
+) -> None:
+    st.subheader(f"{grain} Review")
+    if metrics.empty:
+        st.info(f"No {grain.lower()} metrics are available yet.")
+        return
+
+    periods = period_dimension(
+        metrics,
+        year_column,
+        period_column,
+        start_column,
+        end_column,
+        label_prefix,
+    )
+    default_start_index = max(0, len(periods) - default_period_count)
+    controls = st.columns([2, 1])
+    with controls[0]:
+        selected_range = st.date_input(
+            f"Select {grain.lower()} date range",
+            value=(
+                periods.loc[default_start_index, start_column].date(),
+                periods.iloc[-1][start_column].date(),
+            ),
+            min_value=periods.iloc[0][start_column].date(),
+            max_value=periods.iloc[-1][start_column].date(),
+            key=f"{grain.lower()}_range",
+        )
+    with controls[1]:
+        measure_label = st.selectbox(
+            "Table metric",
+            ["Claim count", "Claim value (USD)"],
+            key=f"{grain.lower()}_measure",
+        )
+    if not isinstance(selected_range, (tuple, list)) or len(selected_range) != 2:
+        st.info("Select both a start date and an end date.")
+        return
+
+    range_start, range_end = pd.to_datetime(selected_range)
+    selected_periods = periods[
+        (periods[start_column] >= range_start)
+        & (periods[start_column] <= range_end)
+    ]
+    if selected_periods.empty:
+        st.warning("No reporting periods fall within this date range.")
+        return
+
+    measure = (
+        "claim_count"
+        if measure_label == "Claim count"
+        else "claim_value_usd"
+    )
+    pivot, previous_label = build_review_pivot(
+        metrics,
+        periods,
+        selected_periods,
+        start_column,
+        measure,
+    )
+    pivot = pivot.rename(columns={"comparison": comparison_label})
+    last_label = selected_periods.iloc[-1]["period_label"]
+    if previous_label:
+        st.caption(
+            f"{comparison_label} compares {last_label} with {previous_label}. "
+            "Parent rows are totals; indented rows show Tier 2 and Tier 3."
+        )
+    else:
+        st.caption(
+            f"{last_label} is the first available period, so no "
+            f"{comparison_label} comparison exists yet."
+        )
+
+    period_labels = selected_periods["period_label"].tolist()
+    column_config: dict[str, Any] = {
+        "WBR waterfall": st.column_config.TextColumn(width="large"),
+    }
+    number_format = "$%.0f" if measure == "claim_value_usd" else "%.0f"
+    for label in period_labels:
+        column_config[label] = st.column_config.NumberColumn(
+            format=number_format,
+        )
+    st.dataframe(
+        pivot,
+        hide_index=True,
+        use_container_width=True,
+        column_config=column_config,
+    )
+    download_csv(
+        pivot,
+        f"{grain.lower()}_review_{last_label}.csv",
+        f"download_{grain.lower()}_review",
+    )
+
+
 st.title("Insurance Claims Dashboard")
 st.caption("Current claim state, historical trends, and status transitions")
 
@@ -402,69 +685,33 @@ else:
         )
         st.stop()
 
-grain = st.sidebar.radio("Metric granularity", ["Weekly", "Monthly"])
-if grain == "Weekly":
-    metrics = data["weekly_metrics"].copy()
-    states = data["weekly"].copy()
-    year_column = "report_year"
-    period_column = "report_week"
-    start_column = "week_start_date"
-    end_column = "week_end_date"
-    period_prefix = "WK"
-else:
-    metrics = data["monthly_metrics"].copy()
-    states = data["monthly"].copy()
-    year_column = "metric_year"
-    period_column = "metric_month"
-    start_column = "month_start_date"
-    end_column = "month_end_date"
-    period_prefix = "M"
-
-if metrics.empty:
+weekly_metrics = data["weekly_metrics"].copy()
+if weekly_metrics.empty:
     st.warning("No historical metrics exist yet. Build the new dbt marts first.")
     st.stop()
 
-periods = (
-    metrics[[year_column, period_column, start_column, end_column]]
-    .drop_duplicates()
-    .sort_values(start_column)
-    .reset_index(drop=True)
+weekly_periods = period_dimension(
+    weekly_metrics,
+    "report_year",
+    "report_week",
+    "week_start_date",
+    "week_end_date",
+    "W",
 )
-periods["label"] = periods.apply(
-    lambda row: (
-        f"{int(row[year_column])}-{period_prefix}{int(row[period_column]):02d}"
-    ),
-    axis=1,
-)
-
-selected_label = st.sidebar.selectbox(
-    f"{grain} period",
-    periods["label"].tolist(),
-    index=len(periods) - 1,
-)
-selected_index = periods.index[periods["label"] == selected_label][0]
-selected_period = periods.loc[selected_index]
-previous_period = periods.loc[selected_index - 1] if selected_index > 0 else None
-
-selected_metrics = metrics[
-    (metrics[year_column] == selected_period[year_column])
-    & (metrics[period_column] == selected_period[period_column])
+latest_week = weekly_periods.iloc[-1]
+latest_week_metrics = weekly_metrics[
+    (weekly_metrics["report_year"] == latest_week["report_year"])
+    & (weekly_metrics["report_week"] == latest_week["report_week"])
 ]
-if previous_period is None:
-    previous_metrics = pd.DataFrame(columns=metrics.columns)
-else:
-    previous_metrics = metrics[
-        (metrics[year_column] == previous_period[year_column])
-        & (metrics[period_column] == previous_period[period_column])
+if len(weekly_periods) > 1:
+    previous_week = weekly_periods.iloc[-2]
+    previous_week_metrics = weekly_metrics[
+        (weekly_metrics["report_year"] == previous_week["report_year"])
+        & (weekly_metrics["report_week"] == previous_week["report_week"])
     ]
-
-selected_states = states[
-    (states[year_column] == selected_period[year_column])
-    & (states[period_column] == selected_period[period_column])
-]
-period_transitions = selected_states[
-    selected_states.get("status_changed", False).fillna(False)
-].copy()
+else:
+    previous_week = None
+    previous_week_metrics = pd.DataFrame(columns=weekly_metrics.columns)
 
 kpis = [
     ("Active claims", "ACTIVE CASES"),
@@ -473,16 +720,16 @@ kpis = [
 ]
 metric_columns = st.columns(4)
 for column, (label, tier) in zip(metric_columns[:3], kpis):
-    current_value = int(tier_metric(selected_metrics, tier))
-    previous_value = int(tier_metric(previous_metrics, tier))
-    delta = current_value - previous_value if previous_period is not None else None
+    current_value = int(tier_metric(latest_week_metrics, tier))
+    previous_value = int(tier_metric(previous_week_metrics, tier))
+    delta = current_value - previous_value if previous_week is not None else None
     column.metric(label, current_value, delta)
 
-current_exposure = numeric_sum(selected_metrics, "claim_value_usd")
-previous_exposure = numeric_sum(previous_metrics, "claim_value_usd")
+current_exposure = numeric_sum(latest_week_metrics, "claim_value_usd")
+previous_exposure = numeric_sum(previous_week_metrics, "claim_value_usd")
 exposure_delta = (
     money(current_exposure - previous_exposure)
-    if previous_period is not None
+    if previous_week is not None
     else None
 )
 metric_columns[3].metric(
@@ -491,73 +738,83 @@ metric_columns[3].metric(
     exposure_delta,
 )
 
-overview_tab, metrics_tab, current_tab, history_tab, transitions_tab = st.tabs(
+overview_tab, weekly_tab, monthly_tab, current_tab, transitions_tab = st.tabs(
     [
         "Overview",
-        f"{grain} metrics",
+        "Weekly Review",
+        "Monthly Review",
         "Current claims",
-        "Claim history",
         "Transitions",
     ]
 )
 
 with overview_tab:
     trend = (
-        metrics.groupby([start_column, "wbr_tier1"], dropna=False)["claim_count"]
+        weekly_metrics.groupby(
+            ["week_start_date", "wbr_tier1"],
+            dropna=False,
+        )["claim_count"]
         .sum()
         .unstack(fill_value=0)
         .sort_index()
     )
     exposure = (
-        metrics.groupby([start_column, "wbr_tier1"], dropna=False)[
-            "claim_value_usd"
-        ]
+        weekly_metrics.groupby(
+            ["week_start_date", "wbr_tier1"],
+            dropna=False,
+        )["claim_value_usd"]
         .sum()
         .unstack(fill_value=0)
         .sort_index()
     )
     left, right = st.columns(2)
     with left:
-        st.subheader(f"{grain} claim count")
+        st.subheader("Weekly claim count")
         st.line_chart(trend)
     with right:
-        st.subheader(f"{grain} claim value")
+        st.subheader("Weekly claim value")
         st.line_chart(exposure)
 
-    st.subheader(f"Changes in {selected_label}")
+    latest_label = latest_week["period_label"]
+    st.subheader(f"Changes in {latest_label}")
     changes = st.columns(3)
     changes[0].metric(
         "Open → Closed",
-        int(numeric_sum(selected_metrics, "open_to_closed_count")),
+        int(numeric_sum(latest_week_metrics, "open_to_closed_count")),
     )
     changes[1].metric(
         "Closed → Open",
-        int(numeric_sum(selected_metrics, "reopened_count")),
+        int(numeric_sum(latest_week_metrics, "reopened_count")),
     )
     changes[2].metric(
         "New claims",
-        int(numeric_sum(selected_metrics, "new_claim_count")),
+        int(numeric_sum(latest_week_metrics, "new_claim_count")),
     )
 
-with metrics_tab:
-    category_metrics = (
-        selected_metrics.groupby(
-            ["wbr_tier1", "wbr_tier2", "wbr_tier3"],
-            dropna=False,
-        )
-        .agg(
-            claim_count=("claim_count", "sum"),
-            claim_value_usd=("claim_value_usd", "sum"),
-            status_changes=("status_change_count", "sum"),
-        )
-        .reset_index()
-        .sort_values(["wbr_tier1", "wbr_tier2", "wbr_tier3"])
+with weekly_tab:
+    render_period_review(
+        data["weekly_metrics"],
+        grain="Weekly",
+        year_column="report_year",
+        period_column="report_week",
+        start_column="week_start_date",
+        end_column="week_end_date",
+        label_prefix="W",
+        comparison_label="WoW",
+        default_period_count=8,
     )
-    st.dataframe(category_metrics, hide_index=True, use_container_width=True)
-    download_csv(
-        category_metrics,
-        f"{grain.lower()}_metrics_{selected_label}.csv",
-        "download_metrics",
+
+with monthly_tab:
+    render_period_review(
+        data["monthly_metrics"],
+        grain="Monthly",
+        year_column="metric_year",
+        period_column="metric_month",
+        start_column="month_start_date",
+        end_column="month_end_date",
+        label_prefix="M",
+        comparison_label="MoM",
+        default_period_count=12,
     )
 
 with current_tab:
@@ -566,18 +823,9 @@ with current_tab:
     st.dataframe(filtered_current, hide_index=True, use_container_width=True)
     download_csv(filtered_current, "current_claims.csv", "download_current")
 
-with history_tab:
-    filtered_history = filter_claims(selected_states, "history")
-    st.caption(f"{len(filtered_history):,} claim states in {selected_label}")
-    st.dataframe(filtered_history, hide_index=True, use_container_width=True)
-    download_csv(
-        filtered_history,
-        f"claim_history_{selected_label}.csv",
-        "download_history",
-    )
-
 with transitions_tab:
-    if period_transitions.empty:
+    transitions = data["weekly_transitions"].copy()
+    if transitions.empty:
         st.info(
             "No prior-period status changes are available. With the first "
             "snapshot, every claim is NEW_CLAIM; deltas begin after the next "
@@ -585,20 +833,20 @@ with transitions_tab:
         )
     else:
         transition_counts = (
-            period_transitions["transition_type"]
+            transitions["transition_type"]
             .value_counts()
             .rename_axis("transition")
             .to_frame("claims")
         )
         st.bar_chart(transition_counts)
         st.dataframe(
-            period_transitions,
+            transitions.sort_values("week_end_date", ascending=False),
             hide_index=True,
             use_container_width=True,
         )
         download_csv(
-            period_transitions,
-            f"claim_transitions_{selected_label}.csv",
+            transitions,
+            "claim_transitions.csv",
             "download_transitions",
         )
 

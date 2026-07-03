@@ -15,7 +15,10 @@ The dashboard reads these dbt marts from BigQuery:
 It includes a demo mode, so the interface can be explored before BigQuery
 authentication is configured.
 
-The dashboard supports Weekly and Monthly metric granularity. Historical
+The dashboard has dedicated **Weekly Review** and **Monthly Review** tabs.
+Each review includes a selectable date range and a WBR Tier 1 → Tier 2 →
+Tier 3 waterfall pivot. Weeks or months appear across the columns, with a
+rightmost WoW or MoM comparison for the latest selected period. Historical
 deltas become available after at least two source snapshot periods exist.
 
 ## 1. Install Python
