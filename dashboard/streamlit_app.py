@@ -365,7 +365,7 @@ def filter_claims(frame: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
         "carrier_name": "Carrier",
     }
     for index, column in enumerate(
-        ("status", "source", "country", "carrier_name")
+        ("country", "status", "source", "carrier_name")
     ):
         with columns[index]:
             selections[column] = st.multiselect(
@@ -375,8 +375,51 @@ def filter_claims(frame: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
             )
     with columns[4]:
         search = st.text_input(
-            "Claim number contains",
+            "Claim Number",
             key=f"{key_prefix}_search",
+            placeholder="Contains...",
+        )
+
+    for column, selected in selections.items():
+        if selected:
+            filtered = filtered[filtered[column].isin(selected)]
+    if search:
+        filtered = filtered[
+            filtered["claim_number"]
+            .astype(str)
+            .str.contains(search, case=False, na=False)
+        ]
+    return filtered
+
+
+def filter_transitions(frame: pd.DataFrame) -> pd.DataFrame:
+    filtered = frame.copy()
+    columns = st.columns(6)
+    filter_definitions = (
+        ("country", "Country"),
+        ("current_status", "Status"),
+        ("source", "Provider"),
+        ("carrier_name", "Carrier"),
+        ("transition_type", "Transition Type"),
+    )
+    selections: dict[str, list[str]] = {}
+    for index, (column, label) in enumerate(filter_definitions):
+        with columns[index]:
+            selections[column] = st.multiselect(
+                label,
+                sorted(
+                    filtered.get(column, pd.Series(dtype=str))
+                    .dropna()
+                    .astype(str)
+                    .unique()
+                ),
+                key=f"transitions_{column}",
+            )
+    with columns[5]:
+        search = st.text_input(
+            "Claim Number",
+            key="transitions_search",
+            placeholder="Contains...",
         )
 
     for column, selected in selections.items():
@@ -398,6 +441,32 @@ def download_csv(frame: pd.DataFrame, filename: str, key: str) -> None:
         file_name=filename,
         mime="text/csv",
         key=key,
+    )
+
+
+def display_column_name(column: str) -> str:
+    abbreviations = {
+        "id": "ID",
+        "usd": "USD",
+        "vin": "VIN",
+        "wbr": "WBR",
+    }
+    words: list[str] = []
+    for word in column.split("_"):
+        tier_match = re.fullmatch(r"tier(\d+)", word, flags=re.IGNORECASE)
+        if tier_match:
+            words.extend(["Tier", tier_match.group(1)])
+        else:
+            words.append(abbreviations.get(word.lower(), word.title()))
+    return " ".join(words)
+
+
+def title_case_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame.rename(
+        columns={
+            column: display_column_name(str(column))
+            for column in frame.columns
+        }
     )
 
 
@@ -883,8 +952,9 @@ with monthly_tab:
 with current_tab:
     filtered_current = filter_claims(data["current"], "current")
     st.caption(f"{len(filtered_current):,} matching current claims")
-    st.dataframe(filtered_current, hide_index=True, use_container_width=True)
-    download_csv(filtered_current, "current_claims.csv", "download_current")
+    current_display = title_case_columns(filtered_current)
+    st.dataframe(current_display, hide_index=True, use_container_width=True)
+    download_csv(current_display, "current_claims.csv", "download_current")
 
 with transitions_tab:
     transitions = data["weekly_transitions"].copy()
@@ -895,20 +965,21 @@ with transitions_tab:
             "snapshot period."
         )
     else:
-        transition_counts = (
-            transitions["transition_type"]
-            .value_counts()
-            .rename_axis("transition")
-            .to_frame("claims")
+        filtered_transitions = filter_transitions(transitions)
+        st.caption(f"{len(filtered_transitions):,} matching transitions")
+        transitions_display = title_case_columns(
+            filtered_transitions.sort_values(
+                "week_end_date",
+                ascending=False,
+            )
         )
-        st.bar_chart(transition_counts)
         st.dataframe(
-            transitions.sort_values("week_end_date", ascending=False),
+            transitions_display,
             hide_index=True,
             use_container_width=True,
         )
         download_csv(
-            transitions,
+            transitions_display,
             "claim_transitions.csv",
             "download_transitions",
         )
