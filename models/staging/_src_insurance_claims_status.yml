@@ -8,7 +8,7 @@ sources:
     schema: trailer_claims  # Dataset name
 
     tables:
-      - name: insurance_claims_status
+      - name: insurance_claims_statu_hist
         description: >
           Append-only claim snapshots. One row per claim per snapshot_date.
         data_tests:
